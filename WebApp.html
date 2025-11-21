@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <?!= include('GlobalCSS'); ?>
+  </head>
+  <body>
+    <div class="app-container">
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <h2>B2B Prospección</h2>
+          <p>Sistema de gestión comercial</p>
+        </div>
+        <nav class="nav-menu">
+          <ul>
+            <li><a href="#" class="nav-link active" data-view="dashboard"><span>📊</span> <span>Dashboard</span></a></li>
+            
+            <li class="nav-group-title"><span>PROSPECCIÓN</span></li>
+            <li><a href="#" class="nav-link" data-view="leads" data-source="fase1"><span>1️⃣</span> <span>Leads Fase 1</span></a></li>
+            <li><a href="#" class="nav-link" data-view="leads" data-source="fase2"><span>2️⃣</span> <span>Leads Fase 2</span></a></li>
+            <li><a href="#" class="nav-link" data-view="respuestas"><span>📩</span> <span>Respuestas</span></a></li>
+            
+            <li class="nav-group-title"><span>CONVERSIÓN</span></li>
+            <li><a href="#" class="nav-link" data-view="leads" data-source="clientes"><span>⭐</span> <span>Clientes</span></a></li>
+            <li class="nav-group-title"><span>HERRAMIENTAS</span></li>
+            <li><a href="#" class="nav-link" data-view="importar"><span>⚙️</span> <span>Importar Datos</span></a></li>
+            
+            <li class="nav-group-title"><span>ACTIVIDAD</span></li>
+            <li><a href="#" class="nav-link" data-view="outbox"><span>📤</span> <span>Actividad Hoy</span></a></li>
+
+            <li><a href="#" class="nav-link" data-view="configuracion"><span>🔧</span> <span>Configuración</span></a></li>
+          </ul>
+        </nav>
+      </aside>
+      
+      <main class="main-content">
+        <?!= include('view-dashboard'); ?>
+        <?!= include('view-leads'); ?>
+        <?!= include('view-outbox'); ?>
+        <?!= include('view-respuestas'); ?>
+        <?!= include('view-importar'); ?>
+        <?!= include('view-configuracion'); ?>
+      </main>
+    </div>
+
+    <!-- ======================================== -->
+    <!-- INICIO: MODAL DE EXPORTACIÓN AVANZADA    -->
+    <!-- ======================================== -->
+    <div id="export-modal-overlay" class="modal-overlay" style="display: none;">
+      <div id="export-modal" class="modal-content">
+        <div class="modal-header">
+          <h2>Opciones de Exportación</h2>
+          <button id="close-modal-btn" class="close-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="export-option">
+            <input type="radio" id="export-current" name="export-type" value="currentView" checked>
+            <label for="export-current">Exportar la vista actual</label>
+            <div class="option-description">Exporta los datos tal como los ves, respetando el filtro de estado que hayas aplicado.</div>
+          </div>
+          
+          <div class="export-option">
+            <input type="radio" id="export-id-range" name="export-type" value="idRange">
+            <label for="export-id-range">Exportar por rango de ID</label>
+            <div class="option-controls" id="id-range-controls" style="display: none;">
+              <input type="text" id="start-id" placeholder="ID Inicial (ej: EMP-001)">
+              <input type="text" id="end-id" placeholder="ID Final (ej: EMP-150)">
+            </div>
+          </div>
+
+          <div class="export-option">
+            <input type="radio" id="export-status" name="export-type" value="status">
+            <label for="export-status">Exportar por estado específico</label>
+            <div class="option-controls" id="status-controls" style="display: none;">
+              <select id="status-select">
+                <option value="nuevo">Nuevo</option>
+                <option value="activo">Activo</option>
+                <option value="respondido">Respondido</option>
+                <option value="Pospuesto">Pospuesto</option>
+                <option value="Baja">Baja</option>
+                <option value="Baja (Email Inválido)">Baja (Email Inválido)</option>
+                <option value="Convertido">Convertido</option>
+                <option value="Cliente">Cliente</option>
+              </select>
+            </div>
+          </div>
+
+          <div id="export-status-message" class="import-status" style="display: none;"></div>
+        </div>
+        <div class="modal-footer">
+          <button id="generate-export-btn" class="action-btn btn-primary">Generar y Descargar</button>
+        </div>
+      </div>
+    </div>
+    <!-- ======================================== -->
+    <!-- FIN: MODAL DE EXPORTACIÓN AVANZADA       -->
+    <!-- ======================================== -->
+
+   
+    <!-- ======================================== -->
+    <!-- INICIO: MODAL DE COMPOSICIÓN DE CORREO   -->
+    <!-- ======================================== -->
+    <div id="composer-modal-overlay" class="modal-overlay" style="display: none;">
+      <div id="composer-modal" class="modal-content" style="max-width: 700px;">
+        <div class="modal-header">
+          <h2>Redactar Correo</h2>
+          <button id="close-composer-btn" class="close-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label for="composer-to">Para:</label>
+            <input type="email" id="composer-to" class="composer-input">
+          </div>
+          <div class="form-group">
+            <label for="composer-subject">Asunto:</label>
+            <input type="text" id="composer-subject" class="composer-input">
+          </div>
+          <div class="form-group">
+            <label>Mensaje:</label>
+            <div id="composer-body" class="composer-body" contenteditable="true"></div>
+            <div id="composer-quoted-text" class="composer-quoted"></div>
+          </div>
+          <div class="checkbox-group">
+            <label>
+              <input type="checkbox" id="composer-use-thread"> Continuar en este hilo de conversación
+            </label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="send-manual-email-btn" class="action-btn btn-primary">Enviar Inmediatamente</button>
+        </div>
+      </div>
+    </div>
+    <!-- ======================================== -->
+    <!-- FIN: MODAL DE COMPOSICIÓN DE CORREO      -->
+    <!-- ======================================== -->
+
+    <?!= include('GlobalJS'); ?>
+  </body>
+</html>

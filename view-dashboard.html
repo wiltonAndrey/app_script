@@ -1,0 +1,14 @@
+<div id="dashboard-view" class="view active-view">
+    <header class="header"><h1>Dashboard</h1><p>Resumen de actividad de prospección en tiempo real.</p></header>
+    <div class="kpi-grid">
+      <div class="kpi-card"><div class="kpi-header"><div class="icon icon-sent">➤</div><span class="label">Envíos Hoy</span></div><p class="value"><span id="kpi-enviados">0</span> / <span id="kpi-objetivo-diario">0</span></p><div class="progress-bar"><div id="progress-enviados" style="width: 0%;"></div></div></div>
+      <div class="kpi-card"><div class="kpi-header"><div class="icon icon-responses">✉️</div><span class="label">Respuestas Hoy</span></div><p class="value" id="kpi-respuestas">0</p></div>
+      <div class="kpi-card"><div class="kpi-header"><div class="icon icon-leads">📈</div><span class="label">Leads Activos</span></div><p class="value" id="kpi-leads">0</p></div>
+      <div class="kpi-card"><div class="kpi-header"><div class="icon icon-conversiones">⭐</div><span class="label">Conversiones Hoy</span></div><p class="value" id="kpi-conversiones">0</p></div>
+    </div>
+    <div class="chart-container"><h2>Actividad (Últimos 7 Días)</h2><div class="chart-placeholder">El gráfico de actividad se mostrará aquí.</div></div>
+    <div class="action-panels">
+      <div class="panel"><h3>Respuestas Recientes</h3><div id="panel-respuestas" class="panel-body"><div class="panel-loader">Cargando...</div></div></div>
+      <div class="panel"><h3>Nuevos Leads de Hoy</h3><div id="panel-nuevos-leads" class="panel-body"><div class="panel-loader">Cargando...</div></div></div>
+    </div>
+  </div>
