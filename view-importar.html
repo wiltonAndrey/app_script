@@ -1,41 +1,48 @@
 <div id="importar-view" class="view">
-    <header class="header">
-      <h1>Centro de Importación</h1>
-      <p>Sube tus archivos de Excel para añadir nuevas empresas o actualizar plantillas de correo masivamente.</p>
-    </header>
-  
-    <div class="import-grid">
-      <!-- Card para importar Empresas -->
-      <div class="import-card">
-        <h3>Importar Nuevas Empresas</h3>
-        <p>Sube un archivo Excel (.xlsx) con la lista de nuevas empresas. El sistema verificará duplicados por CIF, Web y Email antes de importar.</p>
-        <div class="file-input-wrapper">
-          <input type="file" id="import-empresas-file" accept=".xlsx, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
-        </div>
-        <button id="import-empresas-btn" class="action-btn btn-primary">Cargar y Procesar Empresas</button>
-        <div id="import-empresas-status" class="import-status"></div>
+  <header class="header">
+    <h1>Centro de Importación</h1>
+    <p>Sube tus archivos de Excel para añadir nuevas empresas o actualizar plantillas de correo masivamente.</p>
+  </header>
+
+  <div class="import-grid">
+    <!-- Card para importar Empresas -->
+    <div class="import-card">
+      <h3>Importar Nuevas Empresas</h3>
+      <p>Sube un archivo Excel (.xlsx) con la lista de nuevas empresas. El sistema verificará duplicados por CIF, Web y
+        Email antes de importar.</p>
+      <div class="file-input-wrapper">
+        <input type="file" id="import-empresas-file"
+          accept=".xlsx, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
       </div>
-  
-      <!-- Card para importar Plantillas Fase 1 -->
-      <div class="import-card">
-        <h3>Actualizar Plantillas (Fase 1)</h3>
-        <p>Sube un archivo Excel con las columnas de ID y las plantillas ('Asunto...' y 'HtmlCuerpo...') para los prospectos de Fase 1.</p>
-        <div class="file-input-wrapper">
-          <input type="file" id="import-f1-file" accept=".xlsx, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
-        </div>
-        <button id="import-f1-btn" class="action-btn btn-primary">Cargar y Actualizar Plantillas F1</button>
-        <div id="import-f1-status" class="import-status"></div>
+      <button id="import-empresas-btn" class="action-btn btn-primary">Cargar y Procesar Empresas</button>
+      <div id="import-empresas-status" class="import-status"></div>
+    </div>
+
+
+    <!-- Card para importar Plantillas Fase 1 -->
+    <div class="import-card">
+      <h3>Actualizar Plantillas (Fase 1)</h3>
+      <p>Sube un archivo Excel con las columnas de ID y las plantillas ('Asunto...' y 'HtmlCuerpo...') para los
+        prospectos de Fase 1.</p>
+      <div class="file-input-wrapper">
+        <input type="file" id="import-f1-file"
+          accept=".xlsx, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
       </div>
-  
-      <!-- Card para importar Plantillas Fase 2 -->
-      <div class="import-card">
-        <h3>Actualizar Plantillas (Fase 2)</h3>
-        <p>Sube un archivo Excel con las columnas de ID y las plantillas ('Asunto...' y 'HtmlCuerpo...') para los prospectos de Fase 2.</p>
-         <div class="file-input-wrapper">
-          <input type="file" id="import-f2-file" accept=".xlsx, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
-        </div>
-        <button id="import-f2-btn" class="action-btn btn-primary">Cargar y Actualizar Plantillas F2</button>
-        <div id="import-f2-status" class="import-status"></div>
+      <button id="import-f1-btn" class="action-btn btn-primary">Cargar y Actualizar Plantillas F1</button>
+      <div id="import-f1-status" class="import-status"></div>
+    </div>
+
+    <!-- Card para importar Plantillas Fase 2 -->
+    <div class="import-card">
+      <h3>Actualizar Plantillas (Fase 2)</h3>
+      <p>Sube un archivo Excel con las columnas de ID y las plantillas ('Asunto...' y 'HtmlCuerpo...') para los
+        prospectos de Fase 2.</p>
+      <div class="file-input-wrapper">
+        <input type="file" id="import-f2-file"
+          accept=".xlsx, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
       </div>
+      <button id="import-f2-btn" class="action-btn btn-primary">Cargar y Actualizar Plantillas F2</button>
+      <div id="import-f2-status" class="import-status"></div>
     </div>
   </div>
+</div>

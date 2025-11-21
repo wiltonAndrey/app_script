@@ -17,6 +17,7 @@ const CONFIG_DEFAULTS = {
     logs: 'Logs_Sistema'
   }
 };
+//listo555
 // ==================================================================
 //               ↓↓↓ PEGA ESTE BLOQUE COMPLETO ↓↓↓
 // ==================================================================
@@ -1071,32 +1072,54 @@ function actualizarThreadIdEnProspecto(prospectoId, contactoId, threadId) {
   return false;
 }
 
-/**
- * Crea un nuevo contacto en la hoja 'Contactos' a partir de un prospecto de Fase 1.
- * Si el prospecto tiene una respuesta, la usa como contexto.
- * VERSIÓN MODIFICADA: Se ha eliminado la lógica que dependía de la columna "Gancho".
- */
 function iniciarFase2DesdeProspecto(prospectoFase1Data) {
   try {
     const config = CONFIG();
     const contactosSheet = obtenerHoja(config.sheets.contactos);
     if (!contactosSheet) {
-      log('ERROR', 'Faltan la hoja Contactos.');
+      log('ERROR', 'No se encontró la hoja "Contactos" para iniciar la Fase 2.');
       return null;
     }
-    // --- LÓGICA MODIFICADA ---
-    // Ahora toma el ID de la empresa desde la columna 'ID_Empresa'.
-    const empresaId = prospectoFase1Data.ID_Empresa;
-    // --- FIN DE LA LÓGICA MODIFICADA ---
-    let valorParaNuevaColumna = '';
+
+    const headersContactos = contactosSheet.getRange(1, 1, 1, contactosSheet.getLastColumn()).getValues()[0];
+    const nuevoIdContacto = generarSiguienteContactoId();
+    if (!nuevoIdContacto) {
+      log('ERROR', 'No se pudo generar un nuevo ID de contacto.');
+      return null;
+    }
+    
+    // Creamos un array vacío con el tamaño correcto para la nueva fila.
+    const newRow = new Array(headersContactos.length).fill('');
+
+    // Mapeamos los datos del prospecto F1 a las columnas correspondientes en 'Contactos'.
+    newRow[headersContactos.indexOf('ContactoId')] = nuevoIdContacto;
+    newRow[headersContactos.indexOf('EmpresaId')] = prospectoFase1Data.ID_Empresa;
+    newRow[headersContactos.indexOf('NombreEmpresa')] = prospectoFase1Data.NombreEmpresa;
+    newRow[headersContactos.indexOf('PAIS')] = prospectoFase1Data.PAIS;
+    
+    // Usamos el EmailContacto si existe, si no, el EmailGeneral como fallback.
+    newRow[headersContactos.indexOf('EmailContacto')] = prospectoFase1Data.EmailContacto || prospectoFase1Data.EmailGeneral;
+    
+    // Si hay una respuesta, la usamos para rellenar campos y añadir notas.
     const contenidoRespuesta = prospectoFase1Data.ContenidoRespuesta ? prospectoFase1Data.ContenidoRespuesta.toString().trim() : '';
-    // ... (el resto de la función no cambia) ...
-    // ...
-    newRow[headersContactos.indexOf('EmpresaId')] = empresaId;
-    // ...
-    // ... (el resto de la función no cambia) ...
+    if (contenidoRespuesta) {
+      newRow[headersContactos.indexOf('Respuesta Hilo Completo')] = contenidoRespuesta;
+      newRow[headersContactos.indexOf('Notas')] = `Creado desde Fase 1. Respuesta recibida:\n"${contenidoRespuesta.substring(0, 150)}..."`;
+    } else {
+      newRow[headersContactos.indexOf('Notas')] = 'Creado desde Fase 1 (conversión manual).';
+    }
+
+    newRow[headersContactos.indexOf('Estado')] = 'Activo'; // O el estado inicial que prefieras
+
+    contactosSheet.appendRow(newRow);
+    log('SUCCESS', `Se ha creado el Contacto ${nuevoIdContacto} para la Empresa ${prospectoFase1Data.ID_Empresa}.`);
+
+    return nuevoIdContacto; // Devolvemos el ID para que onEdit lo use.
+
   } catch (e) {
-    // ...
+    log('ERROR', `Error crítico en iniciarFase2DesdeProspecto: ${e.toString()}`);
+    SpreadsheetApp.getUi().alert(`Error al iniciar Fase 2: ${e.message}`);
+    return null;
   }
 }
 
@@ -1946,7 +1969,8 @@ function limpiarLogsSiNoHayErroresSemanales() {
  */
 function sincronizarNuevasEmpresas() {
   const ui = SpreadsheetApp.getUi();
-  ui.alert('Iniciando sincronización. Se crearán los prospectos para las empresas nuevas. Por favor, espera.');
+  // No mostraremos la alerta de inicio aquí para que se pueda ejecutar en segundo plano sin problemas.
+  // Si se ejecuta desde el menú, el usuario ya sabe que ha empezado.
 
   log('INFO', 'Iniciando sincronización de nuevas empresas...');
   const config = CONFIG();
@@ -1955,7 +1979,8 @@ function sincronizarNuevasEmpresas() {
 
   if (!empresasSheet || !prospectosSheet) {
     log('ERROR', 'Sincronización abortada: Faltan hojas de Empresas o Prospectos_Fase1.');
-    ui.alert('Error: Faltan las hojas de Empresas o Prospectos_Fase1.');
+    // Solo mostramos UI si la función fue llamada explícitamente por el usuario
+    if (e) ui.alert('Error: Faltan las hojas de Empresas o Prospectos_Fase1.');
     return;
   }
 
@@ -1967,7 +1992,7 @@ function sincronizarNuevasEmpresas() {
   const indiceIdProspecto = prospectosHeaders.indexOf('ID_Empresa');
   if (indiceIdProspecto === -1 && prospectosSheet.getLastRow() > 1) {
     log('ERROR', 'No se encontró la columna "ID_Empresa" en Prospectos_Fase1.');
-    ui.alert('Error: No se encontró la columna "ID_Empresa" en Prospectos_Fase1.');
+    if (e) ui.alert('Error: No se encontró la columna "ID_Empresa" en Prospectos_Fase1.');
     return;
   }
   
@@ -1977,7 +2002,11 @@ function sincronizarNuevasEmpresas() {
   empresasData.forEach(filaEmpresa => {
     const empresaObjeto = crearObjetoDesdeArray(empresasHeaders, filaEmpresa);
     if (empresaObjeto.ID_Empresa && !idsProspectosExistentes.has(empresaObjeto.ID_Empresa)) {
-      if (crearProspectoDesdeEmpresa(empresaObjeto)) {
+      
+      // ==================================================================
+      //               ↓↓↓ ESTA ES LA LÍNEA CORREGIDA ↓↓↓
+      // ==================================================================
+      if (crearProspectoDesdeEmpresa(empresaObjeto, prospectosSheet)) {
         prospectosCreados++;
         idsProspectosExistentes.add(empresaObjeto.ID_Empresa); 
       }
@@ -1985,9 +2014,14 @@ function sincronizarNuevasEmpresas() {
   });
 
   log('INFO', `Sincronización completada. Se crearon ${prospectosCreados} nuevos prospectos.`);
-  // --- NUEVO: Invalidar caché de vistas después de sincronizar ---
   invalidarCacheVistas();
-  ui.alert(`Sincronización Completa: Se han creado ${prospectosCreados} nuevos prospectos.`); // Alerta Segura
+  // La alerta solo se mostrará si la función es ejecutada desde el menú,
+  // no cuando se ejecuta automáticamente por el trigger 'onChange'.
+  // Para hacerlo más robusto, podríamos pasar el evento 'e' y comprobar si existe.
+  // Por ahora, una notificación 'toast' es menos intrusiva.
+  if (prospectosCreados > 0) {
+      SpreadsheetApp.getActiveSpreadsheet().toast(`${prospectosCreados} nuevos prospectos sincronizados.`);
+  }
 }
 
 // ==================================================================
@@ -2020,36 +2054,17 @@ function configurarActivadorAutomatico() {
   SpreadsheetApp.getUi().alert('Configuración Completa', 'El activador automático ha sido instalado. El sistema ya está funcionando en tiempo real.', SpreadsheetApp.getUi().ButtonSet.OK);
 }
 
-
-/**
- * EL "SENSOR" - VERSIÓN CONSOLIDADA
- * Se activa INSTANTÁNEAMENTE cuando Google Sheets detecta un cambio.
- * @param {Object} e El objeto de evento que proporciona Google.
- */
 function responderAlCambio(e) {
-  const lock = LockService.getScriptLock();
-  // Un tiempo de bloqueo corto es suficiente
-  if (!lock.tryLock(15000)) {
-    log('WARN', 'responderAlCambio omitido por bloqueo de concurrencia.');
-    return;
-  }
-  
-  try {
-    // Nos interesa solo cuando se insertan filas o se edita la hoja de Empresas.
-    if (e.changeType === 'INSERT_ROW' || e.changeType === 'EDIT') {
-      const hojaAfectada = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet().getName();
-      
-      if (hojaAfectada === CONFIG().sheets.empresas) {
-        log('INFO', `Cambio detectado (${e.changeType}) en 'Empresas'. Iniciando sincronización...`);
-        // Pequeña pausa para permitir que Sheets procese completamente el cambio antes de leer.
-        Utilities.sleep(2000); 
-        sincronizarNuevasEmpresas();
-      }
+  // Solo nos interesa registrar cuando se insertan o eliminan filas.
+  // La edición de celdas ya la maneja onEdit.
+  if (e.changeType === 'INSERT_ROW' || e.changeType === 'REMOVE_ROW') {
+    const hojaAfectada = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet().getName();
+    const config = CONFIG();
+    
+    // Verificamos si el cambio ocurrió en una hoja principal del sistema.
+    if (hojaAfectada === config.sheets.empresas || hojaAfectada === config.sheets.contactos) {
+      log('INFO', `Cambio estructural detectado (${e.changeType}) en la hoja '${hojaAfectada}'. La creación de prospectos es gestionada por el sistema de colas.`);
     }
-  } catch (error) {
-    log('ERROR', `Error en el activador responderAlCambio: ${error.toString()}`);
-  } finally {
-    lock.releaseLock();
   }
 }
 

@@ -1,844 +1,844 @@
 <script>
-    // ==================================================================
-    // ESTADO GLOBAL DE LA APLICACIÓN
-    // ==================================================================
-    let activeDetailRow = null;
-    let configToastTimeout;
-    let activeProspectoData = {};
-  
-    // ==================================================================
-    // INICIALIZACIÓN CENTRALIZADA
-    // ==================================================================
-    document.addEventListener('DOMContentLoaded', function() {
-      setupNavigation();
-      cargarDatosDashboard();
-      setupGlobalListeners();
-    });
-  
-    // ==================================================================
-    // NAVEGACIÓN Y GESTIÓN DE VISTAS
-    // ==================================================================
-    function setupNavigation() {
-      document.querySelectorAll('.nav-link').forEach(link => {
-        link.addEventListener('click', function(event) {
-          event.preventDefault();
-          const viewName = this.dataset.view;
-          const dataSource = this.dataset.source;
-          document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
-          this.classList.add('active');
-          switchView(viewName, dataSource);
-        });
+  // ==================================================================
+  // ESTADO GLOBAL DE LA APLICACIÓN
+  // ==================================================================
+  let activeDetailRow = null;
+  let configToastTimeout;
+  let activeProspectoData = {};
+
+  // ==================================================================
+  // INICIALIZACIÓN CENTRALIZADA
+  // ==================================================================
+  document.addEventListener('DOMContentLoaded', function () {
+    setupNavigation();
+    cargarDatosDashboard();
+    setupGlobalListeners();
+  });
+
+  // ==================================================================
+  // NAVEGACIÓN Y GESTIÓN DE VISTAS
+  // ==================================================================
+  function setupNavigation() {
+    document.querySelectorAll('.nav-link').forEach(link => {
+      link.addEventListener('click', function (event) {
+        event.preventDefault();
+        const viewName = this.dataset.view;
+        const dataSource = this.dataset.source;
+        document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+        this.classList.add('active');
+        switchView(viewName, dataSource);
       });
-    }
-    
-    function switchView(viewName, dataSource = null) {
-      document.querySelectorAll('.view').forEach(view => view.style.display = 'none');
-      const activeView = document.getElementById(viewName + '-view');
-      if (activeView) {
-        activeView.style.display = 'block';
-        switch (viewName) {
-          case 'dashboard':
-            cargarDatosDashboard();
-            break;
-          case 'leads':
-            // Al cambiar a la vista de leads, siempre empezamos en la página 1
-            cargarVistaDeDatos(dataSource, 1);
-            break;
-          case 'outbox':
-            cargarActividadOutbox();
-            break;
-          case 'respuestas':
-            cargarRespuestas();
-            break;
-          case 'configuracion':
-              cargarPanelConfiguracion();
-            break;
-        }
-      } else {
-        console.error(`Error: No se encontró la vista con el ID '${viewName}-view'.`);
-      }
-    }
-    
-    function setupGlobalListeners() {
-      setupImportListeners();
-      setupExportListeners();
-      setupConfigListeners();
-      setupComposerListeners();
-    }
-  
-    // ==================================================================
-    // LÓGICA DEL DASHBOARD
-    // ==================================================================
-    function cargarDatosDashboard() {
-      google.script.run
-        .withSuccessHandler(actualizarDashboardCompleto)
-        .withFailureHandler(mostrarErrorDashboard)
-        .obtenerDatosDelDashboard();
-    }
-  
-    function actualizarDashboardCompleto(data) {
-      document.getElementById('kpi-enviados').textContent = data.kpis.enviadosHoy;
-      document.getElementById('kpi-objetivo-diario').textContent = data.kpis.objetivoDiario;
-      const progreso = (data.kpis.objetivoDiario > 0) ? (data.kpis.enviadosHoy / data.kpis.objetivoDiario) * 100 : 0;
-      document.getElementById('progress-enviados').style.width = progreso + '%';
-      document.getElementById('kpi-respuestas').textContent = data.kpis.respuestasHoy;
-      document.getElementById('kpi-leads').textContent = data.kpis.leadsActivos;
-      document.getElementById('kpi-conversiones').textContent = data.kpis.conversionesHoy;
-  
-      const interactiveCards = {
-        'leads': { element: document.getElementById('kpi-leads').closest('.kpi-card'), targetView: 'leads', targetSource: 'fase1' },
-        'respuestas': { element: document.getElementById('kpi-respuestas').closest('.kpi-card'), targetView: 'respuestas', targetSource: null },
-        'outbox': { element: document.getElementById('kpi-enviados').closest('.kpi-card'), targetView: 'outbox', targetSource: null }
-      };
-      for (const key in interactiveCards) {
-        const cardInfo = interactiveCards[key];
-        if (cardInfo.element) {
-          cardInfo.element.style.cursor = 'pointer';
-          cardInfo.element.onclick = () => {
-            const selector = cardInfo.targetSource ? `.nav-link[data-view="${cardInfo.targetView}"][data-source="${cardInfo.targetSource}"]` : `.nav-link[data-view="${cardInfo.targetView}"]`;
-            const linkToClick = document.querySelector(selector);
-            if (linkToClick) linkToClick.click();
-          };
-        }
-      }
-    }
-  
-    function mostrarErrorDashboard(error) {
-      document.querySelector('#dashboard-view .header p').textContent = 'Error: ' + error.message;
-    }
-  
-    // ==================================================================
-    // LÓGICA DEL VISOR DINÁMICO (LEADS Y CLIENTES) - CON PAGINACIÓN Y DETALLES BAJO DEMANDA
-    // ==================================================================
-  
-    /**
-     * NOTA DE ARQUITECTURA:
-     * El estado de esta vista se gestiona de forma centralizada en el objeto 'leadsViewState'.
-     * El flujo es el siguiente:
-     * 1. cargarVistaDeDatos() pide una PÁGINA de datos al backend.
-     * 2. mostrarVistaDeDatos() recibe la página y actualiza el estado y la UI.
-     * 3. renderGrid() dibuja la tabla usando SOLO los datos de la página actual.
-     * 4. toggleDetalleLead() se activa al hacer clic y hace una nueva llamada para obtener los detalles COMPLETOS
-     *    de ESE ÚNICO registro, asegurando robustez y datos completos en el detalle.
-     */
-  
-    // Estado específico para la vista de Leads/Clientes
-    const leadsViewState = {
-      config: {},
-      pagination: {},
-      currentFilter: 'todos',
-      currentPage: 1,
-      currentSource: null,
-    };
-  
-    /**
-     * Inicia la carga de datos para una fuente y página específicas.
-     * @param {string} dataSource - La fuente de datos ('fase1', 'fase2', 'clientes').
-     * @param {number} page - El número de página a cargar.
-     */
-  // Dentro de tu archivo de JavaScript (GlobalJS)
-  
-  function cargarVistaDeDatos(dataSource, page = 1) {
-      const loader = document.getElementById('leads-loader');
-      const gridContainer = document.getElementById('leads-grid-container');
-      const paginationControls = document.getElementById('pagination-controls');
-      loader.style.display = 'block';
-      gridContainer.style.display = 'none';
-      paginationControls.style.display = 'none';
-      
-      leadsViewState.currentSource = dataSource;
-  
-      // ANTERIOR: La llamada al backend no incluía el filtro seleccionado por el usuario.
-      // google.script.run
-      //   .withSuccessHandler(mostrarVistaDeDatos)
-      //   .withFailureHandler(mostrarErrorLeads)
-      //   .obtenerDatosParaVista(dataSource, page, 50);
-  
-      // NUEVO: Pasamos el filtro almacenado en 'leadsViewState.currentFilter' como
-      // un parámetro adicional en la llamada a la función del servidor.
-      google.script.run
-        .withSuccessHandler(mostrarVistaDeDatos)
-        .withFailureHandler(mostrarErrorLeads)
-        .obtenerDatosParaVista(dataSource, page, 50, leadsViewState.currentFilter); // <-- PARÁMETRO CLAVE AÑADIDO
+    });
   }
-  
-  
+
+  function switchView(viewName, dataSource = null) {
+    document.querySelectorAll('.view').forEach(view => view.style.display = 'none');
+    const activeView = document.getElementById(viewName + '-view');
+    if (activeView) {
+      activeView.style.display = 'block';
+      switch (viewName) {
+        case 'dashboard':
+          cargarDatosDashboard();
+          break;
+        case 'leads':
+          // Al cambiar a la vista de leads, siempre empezamos en la página 1
+          cargarVistaDeDatos(dataSource, 1);
+          break;
+        case 'outbox':
+          cargarActividadOutbox();
+          break;
+        case 'respuestas':
+          cargarRespuestas();
+          break;
+        case 'configuracion':
+          cargarPanelConfiguracion();
+          break;
+      }
+    } else {
+      console.error(`Error: No se encontró la vista con el ID '${viewName}-view'.`);
+    }
+  }
+
+  function setupGlobalListeners() {
+    setupImportListeners();
+    setupExportListeners();
+    setupConfigListeners();
+    setupComposerListeners();
+  }
+
+  // ==================================================================
+  // LÓGICA DEL DASHBOARD
+  // ==================================================================
+  function cargarDatosDashboard() {
+    google.script.run
+      .withSuccessHandler(actualizarDashboardCompleto)
+      .withFailureHandler(mostrarErrorDashboard)
+      .obtenerDatosDelDashboard();
+  }
+
+  function actualizarDashboardCompleto(data) {
+    document.getElementById('kpi-enviados').textContent = data.kpis.enviadosHoy;
+    document.getElementById('kpi-objetivo-diario').textContent = data.kpis.objetivoDiario;
+    const progreso = (data.kpis.objetivoDiario > 0) ? (data.kpis.enviadosHoy / data.kpis.objetivoDiario) * 100 : 0;
+    document.getElementById('progress-enviados').style.width = progreso + '%';
+    document.getElementById('kpi-respuestas').textContent = data.kpis.respuestasHoy;
+    document.getElementById('kpi-leads').textContent = data.kpis.leadsActivos;
+    document.getElementById('kpi-conversiones').textContent = data.kpis.conversionesHoy;
+
+    const interactiveCards = {
+      'leads': { element: document.getElementById('kpi-leads').closest('.kpi-card'), targetView: 'leads', targetSource: 'fase1' },
+      'respuestas': { element: document.getElementById('kpi-respuestas').closest('.kpi-card'), targetView: 'respuestas', targetSource: null },
+      'outbox': { element: document.getElementById('kpi-enviados').closest('.kpi-card'), targetView: 'outbox', targetSource: null }
+    };
+    for (const key in interactiveCards) {
+      const cardInfo = interactiveCards[key];
+      if (cardInfo.element) {
+        cardInfo.element.style.cursor = 'pointer';
+        cardInfo.element.onclick = () => {
+          const selector = cardInfo.targetSource ? `.nav-link[data-view="${cardInfo.targetView}"][data-source="${cardInfo.targetSource}"]` : `.nav-link[data-view="${cardInfo.targetView}"]`;
+          const linkToClick = document.querySelector(selector);
+          if (linkToClick) linkToClick.click();
+        };
+      }
+    }
+  }
+
+  function mostrarErrorDashboard(error) {
+    document.querySelector('#dashboard-view .header p').textContent = 'Error: ' + error.message;
+  }
+
+  // ==================================================================
+  // LÓGICA DEL VISOR DINÁMICO (LEADS Y CLIENTES) - CON PAGINACIÓN Y DETALLES BAJO DEMANDA
+  // ==================================================================
+
+  /**
+   * NOTA DE ARQUITECTURA:
+   * El estado de esta vista se gestiona de forma centralizada en el objeto 'leadsViewState'.
+   * El flujo es el siguiente:
+   * 1. cargarVistaDeDatos() pide una PÁGINA de datos al backend.
+   * 2. mostrarVistaDeDatos() recibe la página y actualiza el estado y la UI.
+   * 3. renderGrid() dibuja la tabla usando SOLO los datos de la página actual.
+   * 4. toggleDetalleLead() se activa al hacer clic y hace una nueva llamada para obtener los detalles COMPLETOS
+   *    de ESE ÚNICO registro, asegurando robustez y datos completos en el detalle.
+   */
+
+  // Estado específico para la vista de Leads/Clientes
+  const leadsViewState = {
+    config: {},
+    pagination: {},
+    currentFilter: 'todos',
+    currentPage: 1,
+    currentSource: null,
+  };
+
+  /**
+   * Inicia la carga de datos para una fuente y página específicas.
+   * @param {string} dataSource - La fuente de datos ('fase1', 'fase2', 'clientes').
+   * @param {number} page - El número de página a cargar.
+   */
+  // Dentro de tu archivo de JavaScript (GlobalJS)
+
+  function cargarVistaDeDatos(dataSource, page = 1) {
+    const loader = document.getElementById('leads-loader');
+    const gridContainer = document.getElementById('leads-grid-container');
+    const paginationControls = document.getElementById('pagination-controls');
+    loader.style.display = 'block';
+    gridContainer.style.display = 'none';
+    paginationControls.style.display = 'none';
+
+    leadsViewState.currentSource = dataSource;
+
+    // ANTERIOR: La llamada al backend no incluía el filtro seleccionado por el usuario.
+    // google.script.run
+    //   .withSuccessHandler(mostrarVistaDeDatos)
+    //   .withFailureHandler(mostrarErrorLeads)
+    //   .obtenerDatosParaVista(dataSource, page, 50);
+
+    // NUEVO: Pasamos el filtro almacenado en 'leadsViewState.currentFilter' como
+    // un parámetro adicional en la llamada a la función del servidor.
+    google.script.run
+      .withSuccessHandler(mostrarVistaDeDatos)
+      .withFailureHandler(mostrarErrorLeads)
+      .obtenerDatosParaVista(dataSource, page, 50, leadsViewState.currentFilter); // <-- PARÁMETRO CLAVE AÑADIDO
+  }
+
+
   /**
      * Callback que se ejecuta cuando los datos paginados llegan del backend.
      * --- VERSIÓN CORREGIDA ---
      * @param {object} response - La respuesta del servidor con datos, config y paginación.
      */
-    function mostrarVistaDeDatos(response) {
-      leadsViewState.config = response.config;
-      leadsViewState.pagination = response.pagination;
-      leadsViewState.currentPage = response.pagination.currentPage;
-      
-      if (activeDetailRow) {
-        activeDetailRow.remove();
-        activeDetailRow = null;
-      }
-  
-      document.getElementById('vista-titulo').textContent = leadsViewState.config.titulo;
-      document.getElementById('vista-descripcion').textContent = leadsViewState.config.descripcion || 'Gestione sus registros.';
-      document.getElementById('leads-loader').style.display = 'none';
-      document.getElementById('leads-grid-container').style.display = 'block';
-  
-      const filterBar = document.querySelector('#leads-view .filter-bar');
-      if (leadsViewState.config.titulo === 'Clientes') {
-        filterBar.style.display = 'none';
-      } else {
-        filterBar.style.display = 'flex';
-      }
-  
-      // ==================================================================
-      //               ↓↓↓ ESTA ES LA LÍNEA CORREGIDA ↓↓↓
-      // ==================================================================
-      renderGrid(response.data); 
-      // ==================================================================
-      
-      renderPagination();
-      
-      setupLeadsViewListeners();
+  function mostrarVistaDeDatos(response) {
+    leadsViewState.config = response.config;
+    leadsViewState.pagination = response.pagination;
+    leadsViewState.currentPage = response.pagination.currentPage;
+
+    if (activeDetailRow) {
+      activeDetailRow.remove();
+      activeDetailRow = null;
     }
-  
-    /**
-     * Configura los event listeners para los filtros y botones de paginación.
-     * Se ejecuta una sola vez para evitar duplicar listeners.
-     */
-    function setupLeadsViewListeners() {
-        const filterBar = document.querySelector('#leads-view .filter-bar');
-        if (filterBar.dataset.initialized) return;
-  
-        filterBar.addEventListener('click', function(e) {
-          if (e.target.classList.contains('filter-btn')) {
-            document.querySelectorAll('#leads-view .filter-btn').forEach(btn => btn.classList.remove('active'));
-            e.target.classList.add('active');
-            leadsViewState.currentFilter = e.target.dataset.filter;
-            cargarVistaDeDatos(leadsViewState.currentSource, 1);
-          }
-        });
-  
-        document.getElementById('prev-page-btn').addEventListener('click', () => {
-            if (leadsViewState.currentPage > 1) {
-                cargarVistaDeDatos(leadsViewState.currentSource, leadsViewState.currentPage - 1);
-            }
-        });
-  
-        document.getElementById('next-page-btn').addEventListener('click', () => {
-            if (leadsViewState.currentPage < leadsViewState.pagination.totalPages) {
-                cargarVistaDeDatos(leadsViewState.currentSource, leadsViewState.currentPage + 1);
-            }
-        });
-        
-        filterBar.dataset.initialized = 'true';
+
+    document.getElementById('vista-titulo').textContent = leadsViewState.config.titulo;
+    document.getElementById('vista-descripcion').textContent = leadsViewState.config.descripcion || 'Gestione sus registros.';
+    document.getElementById('leads-loader').style.display = 'none';
+    document.getElementById('leads-grid-container').style.display = 'block';
+
+    const filterBar = document.querySelector('#leads-view .filter-bar');
+    if (leadsViewState.config.titulo === 'Clientes') {
+      filterBar.style.display = 'none';
+    } else {
+      filterBar.style.display = 'flex';
     }
-  
-    /**
-     * Renderiza la tabla (grid) en la pantalla con los datos de la página actual.
-     * --- VERSIÓN CORREGIDA Y ROBUSTA PARA MANEJAR FECHAS COMO TEXTO ---
-     * @param {Array<Object>} data - Un array de objetos, cada uno representando una fila.
-     */
-    function renderGrid(data) {
-      const gridHeader = document.querySelector('#leads-grid-container .grid-header');
-      const gridBody = document.getElementById('leads-grid-body');
-      gridHeader.innerHTML = '';
-      gridBody.innerHTML = '';
-      
-      const config = leadsViewState.config;
-      
-      // Define una estructura de columnas flexible
-      const numCols = config.columnasMostradas.length;
-      let gridTemplateColumns = `minmax(120px, 1fr) 2.5fr 1.5fr`; // Para las 3 primeras columnas
-      if (numCols > 3) {
-        gridTemplateColumns += ` repeat(${numCols - 3}, 1fr)`;
+
+    // ==================================================================
+    //               ↓↓↓ ESTA ES LA LÍNEA CORREGIDA ↓↓↓
+    // ==================================================================
+    renderGrid(response.data);
+    // ==================================================================
+
+    renderPagination();
+
+    setupLeadsViewListeners();
+  }
+
+  /**
+   * Configura los event listeners para los filtros y botones de paginación.
+   * Se ejecuta una sola vez para evitar duplicar listeners.
+   */
+  function setupLeadsViewListeners() {
+    const filterBar = document.querySelector('#leads-view .filter-bar');
+    if (filterBar.dataset.initialized) return;
+
+    filterBar.addEventListener('click', function (e) {
+      if (e.target.classList.contains('filter-btn')) {
+        document.querySelectorAll('#leads-view .filter-btn').forEach(btn => btn.classList.remove('active'));
+        e.target.classList.add('active');
+        leadsViewState.currentFilter = e.target.dataset.filter;
+        cargarVistaDeDatos(leadsViewState.currentSource, 1);
       }
-      gridHeader.style.gridTemplateColumns = gridTemplateColumns;
-  
+    });
+
+    document.getElementById('prev-page-btn').addEventListener('click', () => {
+      if (leadsViewState.currentPage > 1) {
+        cargarVistaDeDatos(leadsViewState.currentSource, leadsViewState.currentPage - 1);
+      }
+    });
+
+    document.getElementById('next-page-btn').addEventListener('click', () => {
+      if (leadsViewState.currentPage < leadsViewState.pagination.totalPages) {
+        cargarVistaDeDatos(leadsViewState.currentSource, leadsViewState.currentPage + 1);
+      }
+    });
+
+    filterBar.dataset.initialized = 'true';
+  }
+
+  /**
+   * Renderiza la tabla (grid) en la pantalla con los datos de la página actual.
+   * --- VERSIÓN CORREGIDA Y ROBUSTA PARA MANEJAR FECHAS COMO TEXTO ---
+   * @param {Array<Object>} data - Un array de objetos, cada uno representando una fila.
+   */
+  function renderGrid(data) {
+    const gridHeader = document.querySelector('#leads-grid-container .grid-header');
+    const gridBody = document.getElementById('leads-grid-body');
+    gridHeader.innerHTML = '';
+    gridBody.innerHTML = '';
+
+    const config = leadsViewState.config;
+
+    // Define una estructura de columnas flexible
+    const numCols = config.columnasMostradas.length;
+    let gridTemplateColumns = `minmax(120px, 1fr) 2.5fr 1.5fr`; // Para las 3 primeras columnas
+    if (numCols > 3) {
+      gridTemplateColumns += ` repeat(${numCols - 3}, 1fr)`;
+    }
+    gridHeader.style.gridTemplateColumns = gridTemplateColumns;
+
+    config.columnasMostradas.forEach(colName => {
+      const headerCell = document.createElement('div');
+      headerCell.textContent = colName.replace(/_/g, ' ');
+      gridHeader.appendChild(headerCell);
+    });
+
+    if (!data || data.length === 0) {
+      gridBody.innerHTML = `<div class="panel-empty" style="grid-column: span ${config.columnasMostradas.length}; padding: 20px;">No se encontraron elementos.</div>`;
+      return;
+    }
+
+    data.forEach(item => {
+      const rowDiv = document.createElement('div');
+      rowDiv.className = 'grid-row';
+      rowDiv.style.gridTemplateColumns = gridHeader.style.gridTemplateColumns;
+      rowDiv.dataset.itemId = item[config.idColumn];
+      if (item.Estado) rowDiv.dataset.estado = item.Estado;
+
       config.columnasMostradas.forEach(colName => {
-        const headerCell = document.createElement('div');
-        headerCell.textContent = colName.replace(/_/g, ' ');
-        gridHeader.appendChild(headerCell);
+        const cellDiv = document.createElement('div');
+        let cellValue = item[colName] || '';
+
+        // --- LÓGICA DE FECHAS MEJORADA ---
+        // Si el valor es un string y tiene formato de fecha (ISO), lo formateamos.
+        if (typeof cellValue === 'string' && (colName.toLowerCase().includes('fecha') || colName.toLowerCase().includes('at'))) {
+          try {
+            // Creamos un objeto Date a partir del string y lo formateamos para el usuario
+            cellValue = new Date(cellValue).toLocaleDateString('es-ES', {
+              day: '2-digit', month: '2-digit', year: 'numeric'
+            });
+          } catch (e) { /* Si falla, mostramos el valor original */ }
+        }
+        cellDiv.textContent = cellValue;
+        rowDiv.appendChild(cellDiv);
       });
-  
-      if (!data || data.length === 0) {
-        gridBody.innerHTML = `<div class="panel-empty" style="grid-column: span ${config.columnasMostradas.length}; padding: 20px;">No se encontraron elementos.</div>`;
-        return;
-      }
-  
-      data.forEach(item => {
-        const rowDiv = document.createElement('div');
-        rowDiv.className = 'grid-row';
-        rowDiv.style.gridTemplateColumns = gridHeader.style.gridTemplateColumns;
-        rowDiv.dataset.itemId = item[config.idColumn];
-        if (item.Estado) rowDiv.dataset.estado = item.Estado;
-  
-        config.columnasMostradas.forEach(colName => {
-          const cellDiv = document.createElement('div');
-          let cellValue = item[colName] || '';
-          
-          // --- LÓGICA DE FECHAS MEJORADA ---
-          // Si el valor es un string y tiene formato de fecha (ISO), lo formateamos.
-          if (typeof cellValue === 'string' && (colName.toLowerCase().includes('fecha') || colName.toLowerCase().includes('at'))) {
-              try { 
-                // Creamos un objeto Date a partir del string y lo formateamos para el usuario
-                cellValue = new Date(cellValue).toLocaleDateString('es-ES', {
-                  day: '2-digit', month: '2-digit', year: 'numeric'
-                }); 
-              } catch(e) { /* Si falla, mostramos el valor original */ }
+
+      rowDiv.addEventListener('click', function () { toggleDetalleLead(this); });
+      gridBody.appendChild(rowDiv);
+    });
+  }
+
+  /**
+   * Dibuja los controles de paginación (botones y texto de información).
+   */
+  function renderPagination() {
+    const { currentPage, totalPages } = leadsViewState.pagination;
+    const paginationControls = document.getElementById('pagination-controls');
+
+    if (totalPages > 1) {
+      paginationControls.style.display = 'flex';
+      document.getElementById('page-info').textContent = `Página ${currentPage} de ${totalPages}`;
+      document.getElementById('prev-page-btn').disabled = currentPage === 1;
+      document.getElementById('next-page-btn').disabled = currentPage === totalPages;
+    } else {
+      paginationControls.style.display = 'none';
+    }
+  }
+
+  /**
+   * Muestra u oculta el panel de detalles de un registro.
+   * Realiza una llamada al backend para obtener los datos completos del ítem seleccionado.
+   * @param {HTMLElement} clickedRow - El elemento div de la fila en la que se hizo clic.
+   */
+  function toggleDetalleLead(clickedRow) {
+    if (activeDetailRow) {
+      const currentlySelectedRow = document.querySelector('.selected-row');
+      activeDetailRow.remove();
+      activeDetailRow = null;
+      if (currentlySelectedRow) currentlySelectedRow.classList.remove('selected-row');
+      if (currentlySelectedRow === clickedRow) return;
+    }
+
+    clickedRow.classList.add('selected-row');
+    const itemId = clickedRow.dataset.itemId;
+    const dataSource = leadsViewState.currentSource;
+
+    const detailWrapper = document.createElement('div');
+    detailWrapper.className = 'detail-row-wrapper';
+    detailWrapper.innerHTML = '<div class="detail-content"><div class="panel-loader">Cargando detalles...</div></div>';
+
+    // **COMENTARIO CLAVE**: Esta es la llamada bajo demanda. Es eficiente porque solo pide UN registro.
+    // Usa 'obtenerJsonDeItem' para asegurar que obtenemos TODAS las columnas del registro,
+    // no solo las que se muestran en la tabla, lo cual es esencial para las acciones y el compositor de correo.
+    google.script.run
+      .withSuccessHandler(itemCompleto => {
+        let detailHtml = '<div class="detail-content">';
+        for (const key in itemCompleto) {
+          if (Object.hasOwnProperty.call(itemCompleto, key) && !key.startsWith('HtmlCuerpo') && !key.startsWith('Asunto')) {
+            let value = itemCompleto[key] || 'N/A';
+            if (value && (key.toLowerCase().includes('fecha') || key.toLowerCase().includes('at'))) {
+              try { value = new Date(value).toLocaleString('es-ES'); } catch (e) { }
+            }
+            detailHtml += `<div class="detail-group"><label>${key.replace(/_/g, ' ')}</label><p>${value}</p></div>`;
           }
-          cellDiv.textContent = cellValue;
-          rowDiv.appendChild(cellDiv);
-        });
-        
-        rowDiv.addEventListener('click', function() { toggleDetalleLead(this); });
+        }
+        detailHtml += `<div class="detail-actions">
+              <button class="action-btn btn-primary" onclick="openComposerForLead(this.closest('.detail-row-wrapper'))">✉️ Enviar Correo</button>
+              <button class="action-btn" onclick="handleJsonExport('${dataSource}', '${itemId}')">📄 Exportar JSON</button>
+            </div>`;
+        detailHtml += '</div>';
+
+        detailWrapper.innerHTML = detailHtml;
+
+        detailWrapper.dataset.prospectoId = itemId;
+        detailWrapper.dataset.fase = dataSource;
+        detailWrapper.dataset.threadId = itemCompleto.ThreadId || '';
+        detailWrapper.dataset.email = itemCompleto[leadsViewState.config.emailColumn] || '';
+        detailWrapper.dataset.subject = itemCompleto.AsuntoCorreoInicial || `Contacto: ${itemCompleto[leadsViewState.config.nombreColumn]}`;
+        detailWrapper.dataset.contenidoRespuesta = itemCompleto.ContenidoRespuesta || '';
+      })
+      .withFailureHandler(err => {
+        detailWrapper.innerHTML = `<div class="detail-content"><p style="color:red">Error al cargar detalles: ${err.message}</p></div>`;
+      })
+      .obtenerJsonDeItem(dataSource, itemId);
+
+    clickedRow.parentNode.insertBefore(detailWrapper, clickedRow.nextSibling);
+    activeDetailRow = detailWrapper;
+  }
+
+  /**
+   * Callback para manejar errores durante la carga de la vista de datos.
+   * @param {Error} error - El objeto de error devuelto por el backend.
+   */
+  function mostrarErrorLeads(error) {
+    const loader = document.getElementById('leads-loader');
+    loader.style.color = 'red';
+    loader.innerHTML = `<strong>Error:</strong><br><p>${error.message}</p>`;
+  }
+
+  // ==================================================================
+  // LÓGICA DE ACTIVIDAD (OUTBOX) Y RESPUESTAS
+  // ==================================================================
+  function cargarActividadOutbox() {
+    google.script.run
+      .withSuccessHandler(mostrarActividadOutbox)
+      .withFailureHandler(mostrarErrorOutbox)
+      .obtenerActividadDeHoy();
+  }
+
+  function mostrarActividadOutbox(envios) {
+    const gridBody = document.getElementById('outbox-grid-body');
+    gridBody.innerHTML = '';
+    if (envios.length === 0) {
+      gridBody.innerHTML = '<div class="panel-empty" style="grid-column: span 4;">No envíos hoy.</div>';
+    } else {
+      envios.forEach(envio => {
+        const rowDiv = document.createElement('div');
+        rowDiv.className = 'grid-row outbox-grid';
+        rowDiv.innerHTML = `<div>${envio.toEmail}</div><div>${envio.asunto}</div><div>${envio.estado}</div><div>${envio.sentAt}</div>`;
         gridBody.appendChild(rowDiv);
       });
     }
-  
-    /**
-     * Dibuja los controles de paginación (botones y texto de información).
-     */
-    function renderPagination() {
-        const { currentPage, totalPages } = leadsViewState.pagination;
-        const paginationControls = document.getElementById('pagination-controls');
-        
-        if (totalPages > 1) {
-            paginationControls.style.display = 'flex';
-            document.getElementById('page-info').textContent = `Página ${currentPage} de ${totalPages}`;
-            document.getElementById('prev-page-btn').disabled = currentPage === 1;
-            document.getElementById('next-page-btn').disabled = currentPage === totalPages;
-        } else {
-            paginationControls.style.display = 'none';
-        }
+    document.getElementById('outbox-loader').style.display = 'none';
+    document.getElementById('outbox-grid-container').style.display = 'block';
+  }
+
+  function mostrarErrorOutbox(error) {
+    document.getElementById('outbox-loader').textContent = 'Error: ' + error.message;
+  }
+
+  function cargarRespuestas() {
+    google.script.run
+      .withSuccessHandler(mostrarTarjetasDeRespuesta)
+      .withFailureHandler(mostrarErrorRespuestas)
+      .obtenerProspectosConRespuesta();
+  }
+
+  function mostrarTarjetasDeRespuesta(prospectos) {
+    const container = document.getElementById('respuestas-container');
+    container.innerHTML = '';
+    document.getElementById('respuestas-loader').style.display = 'none';
+    if (!prospectos || prospectos.length === 0) {
+      container.innerHTML = '<div class="panel-empty">Bandeja de entrada limpia.</div>';
+      return;
     }
-  
-    /**
-     * Muestra u oculta el panel de detalles de un registro.
-     * Realiza una llamada al backend para obtener los datos completos del ítem seleccionado.
-     * @param {HTMLElement} clickedRow - El elemento div de la fila en la que se hizo clic.
-     */
-    function toggleDetalleLead(clickedRow) {
-      if (activeDetailRow) {
-        const currentlySelectedRow = document.querySelector('.selected-row');
-        activeDetailRow.remove();
-        activeDetailRow = null;
-        if (currentlySelectedRow) currentlySelectedRow.classList.remove('selected-row');
-        if (currentlySelectedRow === clickedRow) return;
-      }
-  
-      clickedRow.classList.add('selected-row');
-      const itemId = clickedRow.dataset.itemId;
-      const dataSource = leadsViewState.currentSource;
-  
-      const detailWrapper = document.createElement('div');
-      detailWrapper.className = 'detail-row-wrapper';
-      detailWrapper.innerHTML = '<div class="detail-content"><div class="panel-loader">Cargando detalles...</div></div>';
-      
-      // **COMENTARIO CLAVE**: Esta es la llamada bajo demanda. Es eficiente porque solo pide UN registro.
-      // Usa 'obtenerJsonDeItem' para asegurar que obtenemos TODAS las columnas del registro,
-      // no solo las que se muestran en la tabla, lo cual es esencial para las acciones y el compositor de correo.
-      google.script.run
-        .withSuccessHandler(itemCompleto => {
-            let detailHtml = '<div class="detail-content">';
-            for (const key in itemCompleto) {
-              if (Object.hasOwnProperty.call(itemCompleto, key) && !key.startsWith('HtmlCuerpo') && !key.startsWith('Asunto')) {
-                let value = itemCompleto[key] || 'N/A';
-                if (value && (key.toLowerCase().includes('fecha') || key.toLowerCase().includes('at'))) {
-                    try { value = new Date(value).toLocaleString('es-ES'); } catch(e) {}
-                }
-                detailHtml += `<div class="detail-group"><label>${key.replace(/_/g, ' ')}</label><p>${value}</p></div>`;
-              }
-            }
-            detailHtml += `<div class="detail-actions">
-                <button class="action-btn btn-primary" onclick="openComposerForLead(this.closest('.detail-row-wrapper'))">✉️ Enviar Correo</button>
-                <button class="action-btn" onclick="handleJsonExport('${dataSource}', '${itemId}')">📄 Exportar JSON</button>
-              </div>`;
-            detailHtml += '</div>';
-  
-            detailWrapper.innerHTML = detailHtml;
-        
-            detailWrapper.dataset.prospectoId = itemId;
-            detailWrapper.dataset.fase = dataSource;
-            detailWrapper.dataset.threadId = itemCompleto.ThreadId || '';
-            detailWrapper.dataset.email = itemCompleto[leadsViewState.config.emailColumn] || '';
-            detailWrapper.dataset.subject = itemCompleto.AsuntoCorreoInicial || `Contacto: ${itemCompleto[leadsViewState.config.nombreColumn]}`;
-            detailWrapper.dataset.contenidoRespuesta = itemCompleto.ContenidoRespuesta || '';
-        })
-        .withFailureHandler(err => { 
-          detailWrapper.innerHTML = `<div class="detail-content"><p style="color:red">Error al cargar detalles: ${err.message}</p></div>`; 
-        })
-        .obtenerJsonDeItem(dataSource, itemId);
-      
-      clickedRow.parentNode.insertBefore(detailWrapper, clickedRow.nextSibling);
-      activeDetailRow = detailWrapper;
-    }
-  
-    /**
-     * Callback para manejar errores durante la carga de la vista de datos.
-     * @param {Error} error - El objeto de error devuelto por el backend.
-     */
-    function mostrarErrorLeads(error) {
-      const loader = document.getElementById('leads-loader');
-      loader.style.color = 'red';
-      loader.innerHTML = `<strong>Error:</strong><br><p>${error.message}</p>`;
-    }
-  
-    // ==================================================================
-    // LÓGICA DE ACTIVIDAD (OUTBOX) Y RESPUESTAS
-    // ==================================================================
-    function cargarActividadOutbox() {
-      google.script.run
-        .withSuccessHandler(mostrarActividadOutbox)
-        .withFailureHandler(mostrarErrorOutbox)
-        .obtenerActividadDeHoy();
-    }
-  
-    function mostrarActividadOutbox(envios) {
-      const gridBody = document.getElementById('outbox-grid-body');
-      gridBody.innerHTML = '';
-      if (envios.length === 0) {
-        gridBody.innerHTML = '<div class="panel-empty" style="grid-column: span 4;">No envíos hoy.</div>';
+
+    prospectos.forEach(p => {
+      const card = document.createElement('div');
+      card.className = 'conversation-card';
+      card.dataset.prospectoId = p.id;
+      card.dataset.fase = p.fase;
+      card.dataset.threadId = p.threadId || '';
+      card.dataset.email = p.email || '';
+      card.dataset.subject = p.asuntoUltimoCorreo || '';
+      card.dataset.contenidoRespuesta = p.contenidoRespuesta || '';
+
+      const managementButtons = [
+        `<button class="action-btn" onclick="manejarAccion('${p.id}', 'agregarNota', '${p.fase}')">📝 Añadir Nota</button>`,
+        `<button class="action-btn" onclick="manejarAccion('${p.id}', 'pausar', '${p.fase}')">⏸️ Pausar</button>`,
+        `<button class="action-btn" onclick="manejarAccion('${p.id}', 'posponer', '${p.fase}')">🗓️ Posponer</button>`
+      ];
+
+      if (p.fase === 'fase1') {
+        managementButtons.push(`<button class="action-btn" onclick="manejarAccion('${p.id}', 'iniciarFase2', '${p.fase}')">➡️ Fase 2</button>`);
       } else {
-        envios.forEach(envio => {
-          const rowDiv = document.createElement('div');
-          rowDiv.className = 'grid-row outbox-grid';
-          rowDiv.innerHTML = `<div>${envio.toEmail}</div><div>${envio.asunto}</div><div>${envio.estado}</div><div>${envio.sentAt}</div>`;
-          gridBody.appendChild(rowDiv);
-        });
+        managementButtons.push(`<button class="action-btn" onclick="manejarAccion('${p.id}', 'convertirCliente', '${p.fase}')">⭐ Cliente</button>`);
       }
-      document.getElementById('outbox-loader').style.display = 'none';
-      document.getElementById('outbox-grid-container').style.display = 'block';
+
+      managementButtons.push(`<button class="action-btn btn-danger" onclick="manejarAccion('${p.id}', 'baja', '${p.fase}')">🔴 Baja</button>`);
+
+      card.innerHTML = `
+        <div class="card-header">
+          <h3>${p.nombre}</h3>
+          <div class="meta">${p.fase.replace('fase', 'Fase ')} - ${p.fechaRespuesta}</div>
+        </div>
+        <div class="card-body">
+          <div class="response-content">${p.contenidoRespuesta}</div>
+          <div class="card-actions">
+            <div class="main-action-row">
+              <button class="action-btn btn-primary" onclick="openComposer(this.closest('.conversation-card'))">💬 Responder</button>
+            </div>
+            <div class="management-action-row">${managementButtons.join('')}</div>
+          </div>
+        </div>`;
+
+      container.appendChild(card);
+    });
+  }
+
+  function mostrarErrorRespuestas(error) {
+    document.getElementById('respuestas-loader').innerHTML = `<div style="color:red;">Error: ${error.message}</div>`;
+  }
+
+  function manejarAccion(prospectoId, accion, fase) {
+    let datosExtra = {};
+    let confirmacionMsg = `¿Confirmas la acción '${accion}' para ${prospectoId}?`;
+    let requiereConfirmacion = true;
+
+    if (accion === 'agregarNota') {
+      const nota = prompt("Escribe la nota que quieres añadir:", "");
+      if (nota === null || nota.trim() === '') return;
+      datosExtra.nota = nota.trim();
+      requiereConfirmacion = false;
+    } else if (accion === 'posponer') {
+      const meses = prompt("Posponer durante (meses):", "3");
+      if (meses === null || isNaN(parseInt(meses)) || parseInt(meses) <= 0) return;
+      datosExtra.meses = parseInt(meses);
+      confirmacionMsg = `¿Posponer ${prospectoId} por ${meses} meses?`;
+    } else if (accion === 'iniciarFase2') {
+      const nombre = prompt("Nombre del nuevo contacto:");
+      if (nombre === null || nombre.trim() === '') return;
+      const email = prompt("Email del nuevo contacto:");
+      if (email === null || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { alert("Email inválido."); return; }
+      datosExtra = { nuevoNombre: nombre, nuevoEmail: email };
+      confirmacionMsg = `¿Crear contacto ${nombre} e iniciar Fase 2?`;
     }
-  
-    function mostrarErrorOutbox(error) {
-      document.getElementById('outbox-loader').textContent = 'Error: ' + error.message;
+
+    if (requiereConfirmacion && !confirm(confirmacionMsg)) return;
+
+    const card = document.querySelector(`.conversation-card[data-prospecto-id="${prospectoId}"]`);
+    if (card) { card.style.opacity = '0.5'; card.style.pointerEvents = 'none'; }
+
+    google.script.run
+      .withSuccessHandler(function (response) {
+        if (response.success) {
+          showToast('Acción completada con éxito.');
+          cargarRespuestas();
+          cargarDatosDashboard();
+        } else {
+          alert('Error del servidor: ' + response.message);
+          if (card) { card.style.opacity = '1'; card.style.pointerEvents = 'auto'; }
+        }
+      })
+      .withFailureHandler(function (error) {
+        alert('Error de comunicación: ' + error.message);
+        if (card) { card.style.opacity = '1'; card.style.pointerEvents = 'auto'; }
+      })
+      .ejecutarAccionRespuesta(prospectoId, accion, fase, datosExtra);
+  }
+
+  function openComposer(elementWithData, esRespuesta = true) {
+    if (!elementWithData) return;
+
+    const toInput = document.getElementById('composer-to');
+    const subjectInput = document.getElementById('composer-subject');
+    const bodyInput = document.getElementById('composer-body');
+    const quotedBox = document.getElementById('composer-quoted-text');
+    const useThreadCheckbox = document.getElementById('composer-use-thread');
+    const overlay = document.getElementById('composer-modal-overlay');
+
+    const prospectoId = elementWithData.dataset.prospectoId;
+    const fase = elementWithData.dataset.fase;
+    const threadId = elementWithData.dataset.threadId || '';
+    const email = elementWithData.dataset.email || '';
+    const subject = elementWithData.dataset.subject || 'Contacto';
+    const contenidoRespuesta = elementWithData.dataset.contenidoRespuesta || '';
+
+    activeProspectoData = { prospectoId: prospectoId, fase, threadId, originalEmail: email };
+
+    toInput.value = email;
+
+    if (esRespuesta) {
+      const normalizedSubject = subject.toLowerCase().startsWith('re:') ? subject : `Re: ${subject}`;
+      subjectInput.value = normalizedSubject;
+      bodyInput.innerHTML = '<br><br>--<br>Un saludo,<br>Equipo BH International';
+      quotedBox.innerText = `\n\n---------- Mensaje anterior ----------\n${contenidoRespuesta}`;
+      quotedBox.style.display = 'block';
+    } else {
+      subjectInput.value = subject;
+      bodyInput.innerHTML = '<br><br>--<br>Un saludo,<br>Equipo BH International';
+      quotedBox.innerText = '';
+      quotedBox.style.display = 'none';
     }
-  
-    function cargarRespuestas() {
-      google.script.run
-        .withSuccessHandler(mostrarTarjetasDeRespuesta)
-        .withFailureHandler(mostrarErrorRespuestas)
-        .obtenerProspectosConRespuesta();
-    }
-  
-    function mostrarTarjetasDeRespuesta(prospectos) {
-      const container = document.getElementById('respuestas-container');
-      container.innerHTML = '';
-      document.getElementById('respuestas-loader').style.display = 'none';
-      if (!prospectos || prospectos.length === 0) {
-        container.innerHTML = '<div class="panel-empty">Bandeja de entrada limpia.</div>';
+
+    useThreadCheckbox.checked = !!threadId;
+    overlay.style.display = 'flex';
+    bodyInput.focus();
+  }
+
+  function openComposerForLead(detailWrapper) {
+    openComposer(detailWrapper, false);
+  }
+
+  function closeComposer() {
+    document.getElementById('composer-modal-overlay').style.display = 'none';
+  }
+
+  function setupComposerListeners() {
+    const sendButton = document.getElementById('send-manual-email-btn');
+    if (sendButton.dataset.initialized) return;
+
+    document.getElementById('close-composer-btn').addEventListener('click', closeComposer);
+    document.getElementById('composer-modal-overlay').addEventListener('click', (e) => {
+      if (e.target.id === 'composer-modal-overlay') closeComposer();
+    });
+
+    document.getElementById('composer-to').addEventListener('input', function () {
+      const originalEmail = activeProspectoData.originalEmail || '';
+      document.getElementById('composer-use-thread').checked = (this.value.trim() === originalEmail && !!activeProspectoData.threadId);
+    });
+
+    sendButton.addEventListener('click', function () {
+      const mailData = {
+        prospectoId: activeProspectoData.prospectoId,
+        fase: activeProspectoData.fase,
+        threadId: activeProspectoData.threadId,
+        to: document.getElementById('composer-to').value.trim(),
+        subject: document.getElementById('composer-subject').value.trim(),
+        body: document.getElementById('composer-body').innerHTML + document.getElementById('composer-quoted-text').innerText,
+        useThread: document.getElementById('composer-use-thread').checked
+      };
+
+      if (!mailData.to || !mailData.subject) {
+        alert('El destinatario y el asunto son obligatorios.');
         return;
       }
-  
-      prospectos.forEach(p => {
-        const card = document.createElement('div');
-        card.className = 'conversation-card';
-        card.dataset.prospectoId = p.id;
-        card.dataset.fase = p.fase;
-        card.dataset.threadId = p.threadId || '';
-        card.dataset.email = p.email || '';
-        card.dataset.subject = p.asuntoUltimoCorreo || '';
-        card.dataset.contenidoRespuesta = p.contenidoRespuesta || '';
-  
-        const managementButtons = [
-          `<button class="action-btn" onclick="manejarAccion('${p.id}', 'agregarNota', '${p.fase}')">📝 Añadir Nota</button>`,
-          `<button class="action-btn" onclick="manejarAccion('${p.id}', 'pausar', '${p.fase}')">⏸️ Pausar</button>`,
-          `<button class="action-btn" onclick="manejarAccion('${p.id}', 'posponer', '${p.fase}')">🗓️ Posponer</button>`
-        ];
-  
-        if (p.fase === 'fase1') {
-          managementButtons.push(`<button class="action-btn" onclick="manejarAccion('${p.id}', 'iniciarFase2', '${p.fase}')">➡️ Fase 2</button>`);
-        } else {
-          managementButtons.push(`<button class="action-btn" onclick="manejarAccion('${p.id}', 'convertirCliente', '${p.fase}')">⭐ Cliente</button>`);
-        }
-  
-        managementButtons.push(`<button class="action-btn btn-danger" onclick="manejarAccion('${p.id}', 'baja', '${p.fase}')">🔴 Baja</button>`);
-        
-        card.innerHTML = `
-          <div class="card-header">
-            <h3>${p.nombre}</h3>
-            <div class="meta">${p.fase.replace('fase', 'Fase ')} - ${p.fechaRespuesta}</div>
-          </div>
-          <div class="card-body">
-            <div class="response-content">${p.contenidoRespuesta}</div>
-            <div class="card-actions">
-              <div class="main-action-row">
-                <button class="action-btn btn-primary" onclick="openComposer(this.closest('.conversation-card'))">💬 Responder</button>
-              </div>
-              <div class="management-action-row">${managementButtons.join('')}</div>
-            </div>
-          </div>`;
-  
-        container.appendChild(card);
-      });
-    }
-  
-    function mostrarErrorRespuestas(error) {
-      document.getElementById('respuestas-loader').innerHTML = `<div style="color:red;">Error: ${error.message}</div>`;
-    }
-  
-    function manejarAccion(prospectoId, accion, fase) {
-      let datosExtra = {};
-      let confirmacionMsg = `¿Confirmas la acción '${accion}' para ${prospectoId}?`;
-      let requiereConfirmacion = true;
-      
-      if (accion === 'agregarNota') {
-        const nota = prompt("Escribe la nota que quieres añadir:", "");
-        if (nota === null || nota.trim() === '') return;
-        datosExtra.nota = nota.trim();
-        requiereConfirmacion = false;
-      } else if (accion === 'posponer') {
-        const meses = prompt("Posponer durante (meses):", "3");
-        if (meses === null || isNaN(parseInt(meses)) || parseInt(meses) <= 0) return;
-        datosExtra.meses = parseInt(meses);
-        confirmacionMsg = `¿Posponer ${prospectoId} por ${meses} meses?`;
-      } else if (accion === 'iniciarFase2') {
-        const nombre = prompt("Nombre del nuevo contacto:");
-        if (nombre === null || nombre.trim() === '') return;
-        const email = prompt("Email del nuevo contacto:");
-        if (email === null || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { alert("Email inválido."); return; }
-        datosExtra = { nuevoNombre: nombre, nuevoEmail: email };
-        confirmacionMsg = `¿Crear contacto ${nombre} e iniciar Fase 2?`;
-      }
-      
-      if (requiereConfirmacion && !confirm(confirmacionMsg)) return;
-      
-      const card = document.querySelector(`.conversation-card[data-prospecto-id="${prospectoId}"]`);
-      if (card) { card.style.opacity = '0.5'; card.style.pointerEvents = 'none'; }
-  
+
+      const button = this;
+      button.textContent = 'Enviando...';
+      button.disabled = true;
+
       google.script.run
-        .withSuccessHandler(function(response) {
+        .withSuccessHandler(response => {
           if (response.success) {
-            showToast('Acción completada con éxito.');
+            showToast(response.message);
+            closeComposer();
             cargarRespuestas();
-            cargarDatosDashboard();
+            cargarActividadOutbox();
           } else {
-            alert('Error del servidor: ' + response.message);
-            if (card) { card.style.opacity = '1'; card.style.pointerEvents = 'auto'; }
+            showToast(response.message, true);
           }
+          button.textContent = 'Enviar Inmediatamente';
+          button.disabled = false;
         })
-        .withFailureHandler(function(error) {
-          alert('Error de comunicación: ' + error.message);
-          if (card) { card.style.opacity = '1'; card.style.pointerEvents = 'auto'; }
+        .withFailureHandler(error => {
+          showToast(`Error de comunicación: ${error.message}`, true);
+          button.textContent = 'Enviar Inmediatamente';
+          button.disabled = false;
         })
-        .ejecutarAccionRespuesta(prospectoId, accion, fase, datosExtra);
-    }
-  
-    function openComposer(elementWithData, esRespuesta = true) {
-        if (!elementWithData) return;
-  
-        const toInput = document.getElementById('composer-to');
-        const subjectInput = document.getElementById('composer-subject');
-        const bodyInput = document.getElementById('composer-body');
-        const quotedBox = document.getElementById('composer-quoted-text');
-        const useThreadCheckbox = document.getElementById('composer-use-thread');
-        const overlay = document.getElementById('composer-modal-overlay');
-  
-        const prospectoId = elementWithData.dataset.prospectoId;
-        const fase = elementWithData.dataset.fase;
-        const threadId = elementWithData.dataset.threadId || '';
-        const email = elementWithData.dataset.email || '';
-        const subject = elementWithData.dataset.subject || 'Contacto';
-        const contenidoRespuesta = elementWithData.dataset.contenidoRespuesta || '';
-        
-        activeProspectoData = { prospectoId: prospectoId, fase, threadId, originalEmail: email };
-  
-        toInput.value = email;
-        
-        if (esRespuesta) {
-            const normalizedSubject = subject.toLowerCase().startsWith('re:') ? subject : `Re: ${subject}`;
-            subjectInput.value = normalizedSubject;
-            bodyInput.innerHTML = '<br><br>--<br>Un saludo,<br>Equipo BH International';
-            quotedBox.innerText = `\n\n---------- Mensaje anterior ----------\n${contenidoRespuesta}`;
-            quotedBox.style.display = 'block';
-        } else {
-            subjectInput.value = subject;
-            bodyInput.innerHTML = '<br><br>--<br>Un saludo,<br>Equipo BH International';
-            quotedBox.innerText = '';
-            quotedBox.style.display = 'none';
-        }
-  
-        useThreadCheckbox.checked = !!threadId;
-        overlay.style.display = 'flex';
-        bodyInput.focus();
-    }
-    
-    function openComposerForLead(detailWrapper) {
-        openComposer(detailWrapper, false);
-    }
-    
-    function closeComposer() {
-      document.getElementById('composer-modal-overlay').style.display = 'none';
-    }
-  
-    function setupComposerListeners() {
-      const sendButton = document.getElementById('send-manual-email-btn');
-      if (sendButton.dataset.initialized) return;
-  
-      document.getElementById('close-composer-btn').addEventListener('click', closeComposer);
-      document.getElementById('composer-modal-overlay').addEventListener('click', (e) => {
-        if (e.target.id === 'composer-modal-overlay') closeComposer();
-      });
-  
-      document.getElementById('composer-to').addEventListener('input', function() {
-        const originalEmail = activeProspectoData.originalEmail || '';
-        document.getElementById('composer-use-thread').checked = (this.value.trim() === originalEmail && !!activeProspectoData.threadId);
-      });
-  
-      sendButton.addEventListener('click', function() {
-        const mailData = {
-          prospectoId: activeProspectoData.prospectoId,
-          fase: activeProspectoData.fase,
-          threadId: activeProspectoData.threadId,
-          to: document.getElementById('composer-to').value.trim(),
-          subject: document.getElementById('composer-subject').value.trim(),
-          body: document.getElementById('composer-body').innerHTML + document.getElementById('composer-quoted-text').innerText,
-          useThread: document.getElementById('composer-use-thread').checked
-        };
-  
-        if (!mailData.to || !mailData.subject) {
-          alert('El destinatario y el asunto son obligatorios.');
-          return;
-        }
-  
-        const button = this;
-        button.textContent = 'Enviando...';
-        button.disabled = true;
-  
+        .enviarCorreoManualDirecto(mailData);
+    });
+    sendButton.dataset.initialized = true;
+  }
+
+  // ==================================================================
+  // LÓGICA DE IMPORTACIÓN Y EXPORTACIÓN
+  // ==================================================================
+  function setupImportListeners() {
+    setupFileUploader('import-empresas-file', 'import-empresas-btn', 'import-empresas-status', 'importarArchivoExcel');
+    setupFileUploader('import-f1-file', 'import-f1-btn', 'import-f1-status', 'importarPlantillasFase1');
+    setupFileUploader('import-f2-file', 'import-f2-btn', 'import-f2-status', 'importarPlantillasFase2');
+  }
+
+  function setupFileUploader(fileInputId, buttonId, statusId, backendFunctionName) {
+    const fileInput = document.getElementById(fileInputId);
+    const button = document.getElementById(buttonId);
+    const statusDiv = document.getElementById(statusId);
+    if (!button || button.dataset.initialized) return;
+
+    button.addEventListener('click', () => {
+      const file = fileInput.files[0];
+      if (!file) { statusDiv.textContent = 'Selecciona un archivo.'; statusDiv.className = 'import-status error'; return; }
+      statusDiv.textContent = 'Procesando...'; statusDiv.className = 'import-status processing'; button.disabled = true;
+      const reader = new FileReader();
+      reader.onload = e => {
+        const base64Data = e.target.result.split(',')[1];
+        const fileInfo = { fileName: file.name, mimeType: file.type, base64Data: base64Data };
         google.script.run
           .withSuccessHandler(response => {
-            if (response.success) {
-              showToast(response.message);
-              closeComposer();
-              cargarRespuestas();
-              cargarActividadOutbox();
-            } else {
-              showToast(response.message, true);
-            }
-            button.textContent = 'Enviar Inmediatamente';
-            button.disabled = false;
+            statusDiv.textContent = (response.error ? 'Error: ' : 'Éxito: ') + response.message;
+            statusDiv.className = 'import-status ' + (response.error ? 'error' : 'success');
+            button.disabled = false; fileInput.value = '';
           })
           .withFailureHandler(error => {
-            showToast(`Error de comunicación: ${error.message}`, true);
-            button.textContent = 'Enviar Inmediatamente';
-            button.disabled = false;
-          })
-          .enviarCorreoManualDirecto(mailData);
+            statusDiv.textContent = 'Error de comunicación: ' + error.message;
+            statusDiv.className = 'import-status error'; button.disabled = false;
+          })[backendFunctionName](fileInfo);
+      };
+      reader.readAsDataURL(file);
+    });
+    button.dataset.initialized = 'true';
+  }
+
+  function setupExportListeners() {
+    const exportBtn = document.getElementById('export-excel-btn');
+    if (exportBtn && !exportBtn.dataset.initialized) {
+      exportBtn.addEventListener('click', openExportModal);
+      document.getElementById('close-modal-btn').addEventListener('click', closeExportModal);
+      document.getElementById('export-modal-overlay').addEventListener('click', (e) => {
+        if (e.target.id === 'export-modal-overlay') closeExportModal();
       });
-      sendButton.dataset.initialized = true;
-    }
-  
-    // ==================================================================
-    // LÓGICA DE IMPORTACIÓN Y EXPORTACIÓN
-    // ==================================================================
-    function setupImportListeners() {
-        setupFileUploader('import-empresas-file', 'import-empresas-btn', 'import-empresas-status', 'importarArchivoExcel');
-        setupFileUploader('import-f1-file', 'import-f1-btn', 'import-f1-status', 'importarPlantillasFase1');
-        setupFileUploader('import-f2-file', 'import-f2-btn', 'import-f2-status', 'importarPlantillasFase2');
-    }
-    
-    function setupFileUploader(fileInputId, buttonId, statusId, backendFunctionName) {
-      const fileInput = document.getElementById(fileInputId);
-      const button = document.getElementById(buttonId);
-      const statusDiv = document.getElementById(statusId);
-      if (!button || button.dataset.initialized) return;
-  
-      button.addEventListener('click', () => {
-        const file = fileInput.files[0];
-        if (!file) { statusDiv.textContent = 'Selecciona un archivo.'; statusDiv.className = 'import-status error'; return; }
-        statusDiv.textContent = 'Procesando...'; statusDiv.className = 'import-status processing'; button.disabled = true;
-        const reader = new FileReader();
-        reader.onload = e => {
-          const base64Data = e.target.result.split(',')[1];
-          const fileInfo = { fileName: file.name, mimeType: file.type, base64Data: base64Data };
-          google.script.run
-            .withSuccessHandler(response => {
-              statusDiv.textContent = (response.error ? 'Error: ' : 'Éxito: ') + response.message;
-              statusDiv.className = 'import-status ' + (response.error ? 'error' : 'success');
-              button.disabled = false; fileInput.value = '';
-            })
-            .withFailureHandler(error => {
-              statusDiv.textContent = 'Error de comunicación: ' + error.message;
-              statusDiv.className = 'import-status error'; button.disabled = false;
-            })[backendFunctionName](fileInfo);
-        };
-        reader.readAsDataURL(file);
+      document.getElementById('generate-export-btn').addEventListener('click', executeAdvancedExport);
+      document.querySelectorAll('input[name="export-type"]').forEach(radio => {
+        radio.addEventListener('change', function () {
+          document.getElementById('id-range-controls').style.display = this.value === 'idRange' ? 'block' : 'none';
+          document.getElementById('status-controls').style.display = this.value === 'status' ? 'block' : 'none';
+        });
       });
-      button.dataset.initialized = 'true';
+      exportBtn.dataset.initialized = 'true';
     }
-  
-    function setupExportListeners() {
-      const exportBtn = document.getElementById('export-excel-btn');
-      if (exportBtn && !exportBtn.dataset.initialized) {
-          exportBtn.addEventListener('click', openExportModal);
-          document.getElementById('close-modal-btn').addEventListener('click', closeExportModal);
-          document.getElementById('export-modal-overlay').addEventListener('click', (e) => {
-              if (e.target.id === 'export-modal-overlay') closeExportModal();
-          });
-          document.getElementById('generate-export-btn').addEventListener('click', executeAdvancedExport);
-          document.querySelectorAll('input[name="export-type"]').forEach(radio => {
-              radio.addEventListener('change', function() {
-                  document.getElementById('id-range-controls').style.display = this.value === 'idRange' ? 'block' : 'none';
-                  document.getElementById('status-controls').style.display = this.value === 'status' ? 'block' : 'none';
-              });
-          });
-          exportBtn.dataset.initialized = 'true';
-      }
+  }
+
+  function openExportModal() {
+    document.getElementById('export-modal-overlay').style.display = 'flex';
+    document.getElementById('export-status-message').style.display = 'none';
+    document.getElementById('id-range-controls').style.display = 'none';
+    document.getElementById('status-controls').style.display = 'none';
+    document.getElementById('export-current').checked = true;
+  }
+
+  function closeExportModal() {
+    document.getElementById('export-modal-overlay').style.display = 'none';
+  }
+
+  function executeAdvancedExport() {
+    const btn = document.getElementById('generate-export-btn');
+    const statusDiv = document.getElementById('export-status-message');
+    btn.textContent = 'Generando...'; btn.disabled = true;
+    statusDiv.className = 'import-status processing';
+    statusDiv.textContent = 'Preparando el archivo, por favor espera...';
+    statusDiv.style.display = 'block';
+
+    const dataSource = document.querySelector('.nav-link.active').dataset.source;
+    const selectedType = document.querySelector('input[name="export-type"]:checked').value;
+    let exportOptions = { type: selectedType };
+
+    if (selectedType === 'currentView') {
+      // NOTA: Esta lógica simplificada exporta la PÁGINA actual.
+      // Una versión más avanzada requeriría que el frontend pasara los IDs de la vista filtrada.
+      alert("La exportación de 'vista actual' aún no está implementada con paginación. Por favor, use otra opción.");
+      btn.textContent = 'Generar y Descargar'; btn.disabled = false;
+      return;
+    } else if (selectedType === 'idRange') {
+      exportOptions.startId = document.getElementById('start-id').value;
+      exportOptions.endId = document.getElementById('end-id').value;
+    } else if (selectedType === 'status') {
+      exportOptions.status = document.getElementById('status-select').value;
     }
-  
-    function openExportModal() {
-      document.getElementById('export-modal-overlay').style.display = 'flex';
-      document.getElementById('export-status-message').style.display = 'none';
-      document.getElementById('id-range-controls').style.display = 'none';
-      document.getElementById('status-controls').style.display = 'none';
-      document.getElementById('export-current').checked = true;
-    }
-  
-    function closeExportModal() {
-      document.getElementById('export-modal-overlay').style.display = 'none';
-    }
-  
-    function executeAdvancedExport() {
-      const btn = document.getElementById('generate-export-btn');
-      const statusDiv = document.getElementById('export-status-message');
-      btn.textContent = 'Generando...'; btn.disabled = true;
-      statusDiv.className = 'import-status processing';
-      statusDiv.textContent = 'Preparando el archivo, por favor espera...';
-      statusDiv.style.display = 'block';
-  
-      const dataSource = document.querySelector('.nav-link.active').dataset.source;
-      const selectedType = document.querySelector('input[name="export-type"]:checked').value;
-      let exportOptions = { type: selectedType };
-  
-      if (selectedType === 'currentView') {
-        // NOTA: Esta lógica simplificada exporta la PÁGINA actual.
-        // Una versión más avanzada requeriría que el frontend pasara los IDs de la vista filtrada.
-        alert("La exportación de 'vista actual' aún no está implementada con paginación. Por favor, use otra opción.");
+
+    google.script.run
+      .withSuccessHandler(url => {
+        window.open(url, '_blank');
+        statusDiv.className = 'import-status success';
+        statusDiv.textContent = '¡Archivo generado! La descarga debería comenzar en breve.';
         btn.textContent = 'Generar y Descargar'; btn.disabled = false;
-        return;
-      } else if (selectedType === 'idRange') {
-        exportOptions.startId = document.getElementById('start-id').value;
-        exportOptions.endId = document.getElementById('end-id').value;
-      } else if (selectedType === 'status') {
-        exportOptions.status = document.getElementById('status-select').value;
+        setTimeout(closeExportModal, 2000);
+      })
+      .withFailureHandler(err => {
+        statusDiv.className = 'import-status error';
+        statusDiv.textContent = 'Error: ' + err.message;
+        btn.textContent = 'Generar y Descargar'; btn.disabled = false;
+      })
+      .generarExportacionAvanzada(dataSource, exportOptions);
+  }
+
+  function handleJsonExport(dataSource, itemId) {
+    google.script.run
+      .withSuccessHandler(itemJson => {
+        const jsonString = JSON.stringify(itemJson, null, 2);
+        const blob = new Blob([jsonString], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = `${dataSource}_${itemId}.json`;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      })
+      .withFailureHandler(err => { alert('Error al exportar JSON: ' + err.message); })
+      .obtenerJsonDeItem(dataSource, itemId);
+  }
+
+  // ==================================================================
+  // LÓGICA DEL PANEL DE CONFIGURACIÓN
+  // ==================================================================
+  function showToast(message, isError = false) {
+    const toast = document.getElementById('config-toast');
+    if (!toast) return;
+    toast.textContent = message;
+    toast.style.backgroundColor = isError ? '#D0021B' : '#28a745';
+    toast.classList.add('show');
+    clearTimeout(configToastTimeout);
+    configToastTimeout = setTimeout(() => { toast.classList.remove('show'); }, 3000);
+  }
+
+  function cargarPanelConfiguracion() {
+    google.script.run
+      .withSuccessHandler(actualizarUIConfiguracion)
+      .withFailureHandler(err => showToast('Error al cargar la configuración: ' + err.message, true))
+      .getSystemConfiguration();
+  }
+
+  function actualizarUIConfiguracion(config) {
+    const statusText = document.getElementById('automation-status-text');
+    if (config.automationStatus) {
+      statusText.textContent = config.automationStatus.toUpperCase();
+      statusText.className = 'status-label ' + (config.automationStatus === 'activo' ? 'status-activo' : 'status-inactivo');
+    }
+    if (config.dailyLimit !== undefined) document.getElementById('daily-limit').value = config.dailyLimit;
+    if (config.startHour !== undefined) document.getElementById('start-hour').value = config.startHour;
+    if (config.endHour !== undefined) document.getElementById('end-hour').value = config.endHour;
+    if (config.workDays) {
+      document.querySelectorAll('#work-days-checkboxes input').forEach(cb => {
+        cb.checked = config.workDays.includes(parseInt(cb.value));
+      });
+    }
+  }
+
+  function setupConfigListeners() {
+    const startBtn = document.getElementById('start-automation-btn');
+    if (!startBtn || startBtn.dataset.initialized) return;
+
+    startBtn.addEventListener('click', () => {
+      google.script.run.withSuccessHandler(r => {
+        if (r.success) {
+          actualizarUIConfiguracion({ automationStatus: r.status });
+          showToast('Automatización iniciada.');
+        }
+      }).activarAutomatizacion();
+    });
+    document.getElementById('stop-automation-btn').addEventListener('click', () => {
+      google.script.run.withSuccessHandler(r => {
+        if (r.success) {
+          actualizarUIConfiguracion({ automationStatus: r.status });
+          showToast('Automatización detenida.');
+        }
+      }).desactivarAutomatizacion();
+    });
+    document.getElementById('save-params-btn').addEventListener('click', () => {
+      const newConfig = {
+        dailyLimit: document.getElementById('daily-limit').value,
+        startHour: document.getElementById('start-hour').value,
+        endHour: document.getElementById('end-hour').value,
+        workDays: Array.from(document.querySelectorAll('#work-days-checkboxes input:checked')).map(cb => parseInt(cb.value))
+      };
+      google.script.run.withSuccessHandler(r => {
+        showToast(r.message, !r.success);
+        if (r.success) {
+          actualizarUIConfiguracion(r.newConfig);
+        }
+      }).updateSystemConfiguration(newConfig);
+    });
+    document.getElementById('force-sync-btn').addEventListener('click', () => {
+      showToast('Iniciando sincronización...');
+      google.script.run.withSuccessHandler(() => showToast('Sincronización completada.')).sincronizarNuevasEmpresas();
+    });
+    document.getElementById('clear-logs-btn').addEventListener('click', () => {
+      if (confirm('¿Seguro que quieres limpiar los logs? Esta acción no se puede deshacer.')) {
+        showToast('Limpiando logs...');
+        google.script.run.withSuccessHandler(() => showToast('Logs limpiados.')).limpiarLogsSiNoHayErroresSemanales();
       }
-  
-      google.script.run
-        .withSuccessHandler(url => {
-          window.open(url, '_blank');
-          statusDiv.className = 'import-status success';
-          statusDiv.textContent = '¡Archivo generado! La descarga debería comenzar en breve.';
-          btn.textContent = 'Generar y Descargar'; btn.disabled = false;
-          setTimeout(closeExportModal, 2000);
-        })
-        .withFailureHandler(err => {
-          statusDiv.className = 'import-status error';
-          statusDiv.textContent = 'Error: ' + err.message;
-          btn.textContent = 'Generar y Descargar'; btn.disabled = false;
-        })
-        .generarExportacionAvanzada(dataSource, exportOptions);
-    }
-  
-    function handleJsonExport(dataSource, itemId) {
-      google.script.run
-        .withSuccessHandler(itemJson => {
-          const jsonString = JSON.stringify(itemJson, null, 2);
-          const blob = new Blob([jsonString], { type: 'application/json' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url; a.download = `${dataSource}_${itemId}.json`;
-          document.body.appendChild(a); a.click(); document.body.removeChild(a);
-          URL.revokeObjectURL(url);
-        })
-        .withFailureHandler(err => { alert('Error al exportar JSON: ' + err.message); })
-        .obtenerJsonDeItem(dataSource, itemId);
-    }
-  
-    // ==================================================================
-    // LÓGICA DEL PANEL DE CONFIGURACIÓN
-    // ==================================================================
-    function showToast(message, isError = false) {
-      const toast = document.getElementById('config-toast');
-      if (!toast) return;
-      toast.textContent = message;
-      toast.style.backgroundColor = isError ? '#D0021B' : '#28a745';
-      toast.classList.add('show');
-      clearTimeout(configToastTimeout);
-      configToastTimeout = setTimeout(() => { toast.classList.remove('show'); }, 3000);
-    }
-  
-    function cargarPanelConfiguracion() {
-      google.script.run
-        .withSuccessHandler(actualizarUIConfiguracion)
-        .withFailureHandler(err => showToast('Error al cargar la configuración: ' + err.message, true))
-        .getSystemConfiguration();
-    }
-  
-    function actualizarUIConfiguracion(config) {
-      const statusText = document.getElementById('automation-status-text');
-      if (config.automationStatus) {
-          statusText.textContent = config.automationStatus.toUpperCase();
-          statusText.className = 'status-label ' + (config.automationStatus === 'activo' ? 'status-activo' : 'status-inactivo');
-      }
-      if (config.dailyLimit !== undefined) document.getElementById('daily-limit').value = config.dailyLimit;
-      if (config.startHour !== undefined) document.getElementById('start-hour').value = config.startHour;
-      if (config.endHour !== undefined) document.getElementById('end-hour').value = config.endHour;
-      if (config.workDays) {
-          document.querySelectorAll('#work-days-checkboxes input').forEach(cb => {
-              cb.checked = config.workDays.includes(parseInt(cb.value));
-          });
-      }
-    }
-    
-    function setupConfigListeners() {
-        const startBtn = document.getElementById('start-automation-btn');
-        if (!startBtn || startBtn.dataset.initialized) return;
-  
-        startBtn.addEventListener('click', () => {
-          google.script.run.withSuccessHandler(r => {
-            if (r.success) {
-              actualizarUIConfiguracion({ automationStatus: r.status });
-              showToast('Automatización iniciada.');
-            }
-          }).activarAutomatizacion();
-        });
-        document.getElementById('stop-automation-btn').addEventListener('click', () => {
-          google.script.run.withSuccessHandler(r => {
-            if (r.success) {
-              actualizarUIConfiguracion({ automationStatus: r.status });
-              showToast('Automatización detenida.');
-            }
-          }).desactivarAutomatizacion();
-        });
-        document.getElementById('save-params-btn').addEventListener('click', () => {
-          const newConfig = {
-            dailyLimit: document.getElementById('daily-limit').value,
-            startHour: document.getElementById('start-hour').value,
-            endHour: document.getElementById('end-hour').value,
-            workDays: Array.from(document.querySelectorAll('#work-days-checkboxes input:checked')).map(cb => parseInt(cb.value))
-          };
-          google.script.run.withSuccessHandler(r => {
-            showToast(r.message, !r.success);
-            if (r.success) {
-              actualizarUIConfiguracion(r.newConfig);
-            }
-          }).updateSystemConfiguration(newConfig);
-        });
-        document.getElementById('force-sync-btn').addEventListener('click', () => {
-          showToast('Iniciando sincronización...');
-          google.script.run.withSuccessHandler(() => showToast('Sincronización completada.')).sincronizarNuevasEmpresas();
-        });
-        document.getElementById('clear-logs-btn').addEventListener('click', () => {
-          if (confirm('¿Seguro que quieres limpiar los logs? Esta acción no se puede deshacer.')) {
-              showToast('Limpiando logs...');
-              google.script.run.withSuccessHandler(() => showToast('Logs limpiados.')).limpiarLogsSiNoHayErroresSemanales();
-          }
-        });
-        document.getElementById('install-triggers-btn').addEventListener('click', () => {
-          showToast('Instalando activadores...');
-          google.script.run.withSuccessHandler(() => showToast('Activadores verificados/instalados.')).instalarActivadorDeLimpieza();
-        });
-        
-        startBtn.dataset.initialized = 'true';
-    }
-  </script>
+    });
+    document.getElementById('install-triggers-btn').addEventListener('click', () => {
+      showToast('Instalando activadores...');
+      google.script.run.withSuccessHandler(() => showToast('Activadores verificados/instalados.')).instalarActivadorDeLimpieza();
+    });
+
+    startBtn.dataset.initialized = 'true';
+  }
+</script>

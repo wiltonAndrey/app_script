@@ -1,68 +1,68 @@
 <div id="configuracion-view" class="view">
-    <header class="header">
-      <h1>Configuración y Administración</h1>
-      <p>Controla el comportamiento, los límites y las tareas de mantenimiento del CRM.</p>
-    </header>
-  
-    <div class="config-grid">
-      <!-- SECCIÓN 1: CONTROL DE AUTOMATIZACIÓN -->
-      <div class="config-card">
-        <h3>Control de Automatización</h3>
-        <div class="status-indicator">
-          <span>Estado del Sistema:</span>
-          <span id="automation-status-text" class="status-label status-inactivo">Cargando...</span>
-        </div>
-        <p class="card-description">Inicia o detiene el motor principal que procesa y envía correos.</p>
-        <div class="card-actions">
-          <button id="start-automation-btn" class="action-btn btn-primary">▶️ Iniciar Automatización</button>
-          <button id="stop-automation-btn" class="action-btn btn-danger">⏹️ Detener Automatización</button>
-        </div>
+  <header class="header">
+    <h1>Configuración y Administración</h1>
+    <p>Controla el comportamiento, los límites y las tareas de mantenimiento del CRM.</p>
+  </header>
+
+  <div class="config-grid">
+    <!-- SECCIÓN 1: CONTROL DE AUTOMATIZACIÓN -->
+    <div class="config-card">
+      <h3>Control de Automatización</h3>
+      <div class="status-indicator">
+        <span>Estado del Sistema:</span>
+        <span id="automation-status-text" class="status-label status-inactivo">Cargando...</span>
       </div>
-  
-      <!-- SECCIÓN 2: PARÁMETROS DE ENVÍO -->
-      <div class="config-card">
-        <h3>Parámetros de Envío</h3>
-        <div class="form-group">
-          <label for="daily-limit">Límite Diario de Correos</label>
-          <input type="number" id="daily-limit" min="0">
-        </div>
-        <div class="form-group-inline">
-          <div class="form-group">
-            <label for="start-hour">Hora de Inicio (0-23)</label>
-            <input type="number" id="start-hour" min="0" max="23">
-          </div>
-          <div class="form-group">
-            <label for="end-hour">Hora de Fin (0-23)</label>
-            <input type="number" id="end-hour" min="0" max="23">
-          </div>
-        </div>
-        <div class="form-group">
-          <label>Días Laborales</label>
-          <div id="work-days-checkboxes" class="checkbox-group">
-            <label><input type="checkbox" value="1"> L</label>
-            <label><input type="checkbox" value="2"> M</label>
-            <label><input type="checkbox" value="3"> X</label>
-            <label><input type="checkbox" value="4"> J</label>
-            <label><input type="checkbox" value="5"> V</label>
-            <label><input type="checkbox" value="6"> S</label>
-            <label><input type="checkbox" value="7"> D</label>
-          </div>
-        </div>
-        <div class="card-actions">
-          <button id="save-params-btn" class="action-btn btn-primary">Guardar Parámetros</button>
-        </div>
-      </div>
-  
-      <!-- SECCIÓN 3: MANTENIMIENTO Y DIAGNÓSTICO -->
-      <div class="config-card">
-        <h3>Mantenimiento y Diagnóstico</h3>
-        <p class="card-description">Ejecuta tareas de mantenimiento para asegurar el buen funcionamiento del sistema.</p>
-        <div class="maintenance-actions">
-          <button id="force-sync-btn" class="action-btn">🔄 Forzar Sincronización de Empresas</button>
-          <button id="clear-logs-btn" class="action-btn">🧹 Limpiar Logs Ahora</button>
-          <button id="install-triggers-btn" class="action-btn">🔧 Instalar/Verificar Activadores</button>
-        </div>
+      <p class="card-description">Inicia o detiene el motor principal que procesa y envía correos.</p>
+      <div class="card-actions">
+        <button id="start-automation-btn" class="action-btn btn-primary">▶️ Iniciar Automatización</button>
+        <button id="stop-automation-btn" class="action-btn btn-danger">⏹️ Detener Automatización</button>
       </div>
     </div>
-    <div id="config-toast" class="toast"></div>
+
+    <!-- SECCIÓN 2: PARÁMETROS DE ENVÍO -->
+    <div class="config-card">
+      <h3>Parámetros de Envío</h3>
+      <div class="form-group">
+        <label for="daily-limit">Límite Diario de Correos</label>
+        <input type="number" id="daily-limit" min="0">
+      </div>
+      <div class="form-group-inline">
+        <div class="form-group">
+          <label for="start-hour">Hora de Inicio (0-23)</label>
+          <input type="number" id="start-hour" min="0" max="23">
+        </div>
+        <div class="form-group">
+          <label for="end-hour">Hora de Fin (0-23)</label>
+          <input type="number" id="end-hour" min="0" max="23">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Días Laborales</label>
+        <div id="work-days-checkboxes" class="checkbox-group">
+          <label><input type="checkbox" value="1"> L</label>
+          <label><input type="checkbox" value="2"> M</label>
+          <label><input type="checkbox" value="3"> X</label>
+          <label><input type="checkbox" value="4"> J</label>
+          <label><input type="checkbox" value="5"> V</label>
+          <label><input type="checkbox" value="6"> S</label>
+          <label><input type="checkbox" value="7"> D</label>
+        </div>
+      </div>
+      <div class="card-actions">
+        <button id="save-params-btn" class="action-btn btn-primary">Guardar Parámetros</button>
+      </div>
+    </div>
+
+    <!-- SECCIÓN 3: MANTENIMIENTO Y DIAGNÓSTICO -->
+    <div class="config-card">
+      <h3>Mantenimiento y Diagnóstico</h3>
+      <p class="card-description">Ejecuta tareas de mantenimiento para asegurar el buen funcionamiento del sistema.</p>
+      <div class="maintenance-actions">
+        <button id="force-sync-btn" class="action-btn">🔄 Forzar Sincronización de Empresas</button>
+        <button id="clear-logs-btn" class="action-btn">🧹 Limpiar Logs Ahora</button>
+        <button id="install-triggers-btn" class="action-btn">🔧 Instalar/Verificar Activadores</button>
+      </div>
+    </div>
   </div>
+  <div id="config-toast" class="toast"></div>
+</div>

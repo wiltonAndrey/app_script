@@ -1,8 +1,38 @@
-<div id="outbox-view" class="view">
-    <header class="header"><h1>Actividad de Envío (Hoy)</h1><p>Lista de todos los correos enviados en el día de hoy.</p></header>
-    <div id="outbox-loader">Cargando actividad...</div>
-    <div id="outbox-grid-container" style="display:none;">
-      <div class="grid-header outbox-grid"><div>Email Destino</div><div>Asunto</div><div>Estado</div><div class="center-align">Hora de Envío</div></div>
-      <div id="outbox-grid-body"></div>
+<!-- ================================================================== -->
+<!--               ↓↓↓ REEMPLAZA TU VISTA DE LEADS COMPLETA ↓↓↓         -->
+<!-- ================================================================== -->
+<div id="leads-view" class="view">
+  <header class="header">
+    <h1 id="vista-titulo">Cargando...</h1>
+    <p id="vista-descripcion"></p>
+  </header>
+
+  <div class="view-controls">
+    <div class="filter-bar">
+      <button class="filter-btn active" data-filter="todos">Todos</button>
+      <button class="filter-btn" data-filter="activo">Activos</button>
+      <button class="filter-btn" data-filter="respondido">Respondidos</button>
+      <button class="filter-btn" data-filter="Pospuesto">Pospuestos</button>
+      <button class="filter-btn" data-filter="Baja">Bajas</button>
+      <button class="filter-btn" data-filter="Convertido">Convertidos</button>
+      <button class="filter-btn" data-filter="Cliente">Clientes</button>
+    </div>
+    <div class="export-actions">
+      <button id="export-excel-btn" class="action-btn">📥 Exportar a Excel</button>
     </div>
   </div>
+
+  <div id="leads-loader">Cargando datos...</div>
+  <div id="leads-grid-container" style="display:none;">
+    <div class="grid-header"></div>
+    <div id="leads-grid-body"></div>
+  </div>
+
+  <!-- INICIO: NUEVA SECCIÓN DE PAGINACIÓN -->
+  <div id="pagination-controls" class="pagination-container" style="display: none;">
+    <button id="prev-page-btn" class="action-btn">‹ Anterior</button>
+    <span id="page-info">Página 1 de 1</span>
+    <button id="next-page-btn" class="action-btn">Siguiente ›</button>
+  </div>
+  <!-- FIN: NUEVA SECCIÓN DE PAGINACIÓN -->
+</div>
